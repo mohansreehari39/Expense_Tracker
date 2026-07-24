@@ -57,17 +57,18 @@ What works right now:
   (`Main.kt`) so the default OS minimize/maximize/close buttons — which
   read as flat and generic — are replaced with colored, hover-responsive
   circular buttons in the app's indigo/teal/amber/rose palette. Dragging
-  the bar moves the window (`WindowDraggableArea`); the light/dark toggle
-  also lives here now.
+  the bar moves the window (`WindowDraggableArea`).
 - App identity: a generated wallet/coin icon (indigo → teal, matching the
   UI theme) wired into the runtime window, title bar, and the installer,
   plus an indigo/teal Material3 theme (`Theme.kt`) instead of default
   colors.
-- Light/dark toggle in the custom title bar (sun/moon button). On first
-  run (no saved choice yet) it follows the OS theme — `SystemTheme.kt`
-  checks the `AppsUseLightTheme` registry value on Windows (`defaults read
-  -g AppleInterfaceStyle` on macOS; unrecognized platforms, including this
-  dev sandbox, fall back to light). Once you use the toggle, that explicit
+- Light/dark toggle at the bottom of the sidebar (`ThemeToggleSwitch.kt`)
+  — a slide switch, not a button: dark on the left, light on the right,
+  thumb position shows which is active. On first run (no saved choice
+  yet) it follows the OS theme — `SystemTheme.kt` checks the
+  `AppsUseLightTheme` registry value on Windows (`defaults read -g
+  AppleInterfaceStyle` on macOS; unrecognized platforms, including this
+  dev sandbox, fall back to light). Once you use the switch, that explicit
   choice is remembered across launches in `~/.kharcha/theme.txt`
   (`ThemePreference.kt`) and always wins over the OS theme after that.
 

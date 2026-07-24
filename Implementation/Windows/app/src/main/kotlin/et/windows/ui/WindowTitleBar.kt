@@ -37,8 +37,6 @@ import androidx.compose.ui.window.FrameWindowScope
 @Composable
 fun FrameWindowScope.WindowTitleBar(
     icon: Painter,
-    darkTheme: Boolean,
-    onToggleTheme: () -> Unit,
     isMaximized: Boolean,
     onMinimize: () -> Unit,
     onToggleMaximize: () -> Unit,
@@ -60,7 +58,6 @@ fun FrameWindowScope.WindowTitleBar(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                TitleBarButton(glyph = if (darkTheme) "☀" else "☾", color = Indigo, onClick = onToggleTheme)
                 TitleBarButton(glyph = "—", color = Amber, onClick = onMinimize)
                 TitleBarButton(glyph = if (isMaximized) "❐" else "▢", color = Teal, onClick = onToggleMaximize)
                 TitleBarButton(glyph = "✕", color = Rose, onClick = onClose)
