@@ -6,12 +6,12 @@ import java.io.File
 
 /**
  * v0 simplification: stores the DB under the user's home directory
- * (`~/.expense-tracker/data.db`) rather than `%APPDATA%` — see
+ * (`~/.kharcha/data.db`) rather than `%APPDATA%` — see
  * Design/Windows/05-tray-lifecycle-and-config.md for the intended
  * Windows-specific location, added once packaging/config loading exists.
  */
 fun openDatabase(): WindowsDatabase {
-    val dir = File(System.getProperty("user.home"), ".expense-tracker")
+    val dir = File(System.getProperty("user.home"), ".kharcha")
     dir.mkdirs()
     val dbFile = File(dir, "data.db")
     val isNewDatabase = !dbFile.exists()

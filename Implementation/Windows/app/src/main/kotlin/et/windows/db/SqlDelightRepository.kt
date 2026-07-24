@@ -23,7 +23,6 @@ import et.windows.db.sql.WindowsDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * v0 simplification (see Implementation/Windows/README.md): each save
@@ -40,16 +39,28 @@ class SqlDelightRepository(
     private val clock: HlcClock,
 ) : Repository {
 
-    override suspend fun household(): Household = withContext(Dispatchers.IO) {
-        val row = db.schemaQueries.selectHousehold().executeAsOne()
-        Household(row.id, row.name, row.createdAt)
+    override suspend fun households(): List<Household> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholds().executeAsList().map { Household(it.id, it.name, it.createdAt) }
     }
 
-    override suspend fun categories(): List<Category> = withContext(Dispatchers.IO) {
-        val householdId = household().id
+    override suspend fun household(householdId: String): Household? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholdById(householdId).executeAsOneOrNull()?.let { Household(it.id, it.name, it.createdAt) }
+    }
+
+    override suspend fun saveHousehold(household: Household): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.upsertHousehold(household.id, household.name, household.createdAt)
+        logOp(EntityType.HOUSEHOLD, household.id, mapOf("name" to JsonPrimitive(household.name)))
+    }
+
+    override suspend fun categories(householdId: String): List<Category> = withContext(Dispatchers.IO) {
         db.schemaQueries.selectCategories(householdId).executeAsList().map {
             Category(it.id, it.householdId, it.name, it.icon, it.isArchived == 1L)
         }
+    }
+
+    override suspend fun saveCategory(category: Category): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L)
+        logOp(EntityType.CATEGORY, category.id, mapOf("name" to JsonPrimitive(category.name)))
     }
 
     override suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget? =

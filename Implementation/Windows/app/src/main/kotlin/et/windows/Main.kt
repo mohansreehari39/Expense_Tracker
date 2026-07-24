@@ -1,11 +1,14 @@
 package et.windows
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.res.useResource
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import et.core.model.HlcClock
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
-import et.windows.db.bootstrapIfEmpty
 import et.windows.db.openDatabase
 import et.windows.server.AppServices
 import et.windows.server.DEFAULT_PORT
@@ -17,7 +20,7 @@ import java.util.UUID
 
 /** Stable per-install device id — v0 stand-in for real pairing (Design/Core/04-pairing-and-crypto.md). */
 private fun loadOrCreateDeviceId(): String {
-    val file = File(System.getProperty("user.home"), ".expense-tracker/device-id.txt")
+    val file = File(System.getProperty("user.home"), ".kharcha/device-id.txt")
     if (file.exists()) return file.readText().trim()
     file.parentFile.mkdirs()
     val id = UUID.randomUUID().toString()
@@ -27,7 +30,6 @@ private fun loadOrCreateDeviceId(): String {
 
 fun main() {
     val db = openDatabase()
-    bootstrapIfEmpty(db)
 
     val deviceId = loadOrCreateDeviceId()
     val operationStore = SqlDelightOperationStore(db)
@@ -38,7 +40,8 @@ fun main() {
     Runtime.getRuntime().addShutdownHook(Thread { server.stop(gracePeriodMillis = 500, timeoutMillis = 2000) })
 
     application {
-        Window(onCloseRequest = ::exitApplication, title = "Expense Tracker") {
+        val icon = remember { BitmapPainter(useResource("icon.png") { loadImageBitmap(it) }) }
+        Window(onCloseRequest = ::exitApplication, title = "Kharcha", icon = icon) {
             DashboardApp(ApiClient("http://localhost:$DEFAULT_PORT"))
         }
     }

@@ -1,6 +1,8 @@
 package et.windows.ui
 
-import et.windows.server.CategoryDto
+import et.windows.server.AddTripExpenseRequest
+import et.windows.server.CreateHouseholdRequest
+import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
@@ -8,6 +10,9 @@ import et.windows.server.MonthBudgetResponse
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
 import et.windows.server.SetBudgetRequest
+import et.windows.server.TripDetailResponse
+import et.windows.server.TripDto
+import et.windows.server.TripExpenseDto
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
@@ -26,26 +31,52 @@ class ApiClient(private val baseUrl: String) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 
-    suspend fun household(): Pair<HouseholdDto, List<CategoryDto>> {
-        val response: HouseholdResponse = client.get("$baseUrl/api/v1/household").body()
-        return response.household to response.categories
-    }
+    // -- Households ---------------------------------------------------------
 
-    suspend fun monthBudget(year: Int, month: Int): MonthBudgetResponse =
-        client.get("$baseUrl/api/v1/budgets/$year/$month").body()
+    suspend fun households(): List<HouseholdDto> = client.get("$baseUrl/api/v1/households").body()
 
-    suspend fun setBudget(request: SetBudgetRequest) {
-        client.post("$baseUrl/api/v1/budgets") {
+    suspend fun createHousehold(name: String): HouseholdDto =
+        client.post("$baseUrl/api/v1/households") {
+            contentType(ContentType.Application.Json)
+            setBody(CreateHouseholdRequest(name))
+        }.body()
+
+    suspend fun household(householdId: String): HouseholdResponse =
+        client.get("$baseUrl/api/v1/households/$householdId").body()
+
+    suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
+        client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
+
+    suspend fun setBudget(householdId: String, request: SetBudgetRequest) {
+        client.post("$baseUrl/api/v1/households/$householdId/budgets") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }
     }
 
-    suspend fun expenses(year: Int, month: Int): List<HouseholdExpenseDto> =
-        client.get("$baseUrl/api/v1/expenses?year=$year&month=$month").body()
+    suspend fun expenses(householdId: String, year: Int, month: Int): List<HouseholdExpenseDto> =
+        client.get("$baseUrl/api/v1/households/$householdId/expenses?year=$year&month=$month").body()
 
-    suspend fun recordExpense(request: RecordExpenseRequest): RecordExpenseResponse =
-        client.post("$baseUrl/api/v1/expenses") {
+    suspend fun recordExpense(householdId: String, request: RecordExpenseRequest): RecordExpenseResponse =
+        client.post("$baseUrl/api/v1/households/$householdId/expenses") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    // -- Trips / Activities ---------------------------------------------------
+
+    suspend fun trips(): List<TripDto> = client.get("$baseUrl/api/v1/trips").body()
+
+    suspend fun createTrip(request: CreateTripRequest): TripDto =
+        client.post("$baseUrl/api/v1/trips") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun trip(tripId: String): TripDetailResponse = client.get("$baseUrl/api/v1/trips/$tripId").body()
+
+    suspend fun addTripExpense(tripId: String, request: AddTripExpenseRequest): TripExpenseDto =
+        client.post("$baseUrl/api/v1/trips/$tripId/expenses") {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
