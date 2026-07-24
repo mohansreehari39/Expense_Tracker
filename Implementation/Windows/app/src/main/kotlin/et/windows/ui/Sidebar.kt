@@ -32,7 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
@@ -84,7 +86,7 @@ fun Sidebar(
             .verticalScroll(rememberScrollState())
             .padding(vertical = 16.dp),
     ) {
-        SidebarSectionHeader("HOUSEHOLD", onAdd = { showCreateHousehold = true })
+        SidebarSectionHeader("🏠", "HOUSEHOLD", onAdd = { showCreateHousehold = true })
         households.forEach { household ->
             SidebarRow(
                 label = household.name,
@@ -98,7 +100,7 @@ fun Sidebar(
 
         Spacer(Modifier.height(24.dp))
 
-        SidebarSectionHeader("ACTIVITIES", onAdd = { showCreateTrip = true })
+        SidebarSectionHeader("✈️", "ACTIVITIES", onAdd = { showCreateTrip = true })
         trips.forEach { trip ->
             SidebarRow(
                 label = trip.name,
@@ -197,19 +199,27 @@ fun Sidebar(
 }
 
 @Composable
-private fun SidebarSectionHeader(title: String, onAdd: () -> Unit) {
+private fun SidebarSectionHeader(icon: String, title: String, onAdd: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            title,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(icon, style = MaterialTheme.typography.titleMedium)
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        SidebarIconButton(
+            glyph = "+",
+            onClick = onAdd,
+            size = 26.dp,
+            style = MaterialTheme.typography.titleMedium,
         )
-        SidebarIconButton(glyph = "+", onClick = onAdd)
     }
 }
 
@@ -245,7 +255,7 @@ private fun SidebarRow(label: String, statusColor: Color?, selected: Boolean, on
             maxLines = 1,
         )
         if (hovered || selected) {
-            SidebarIconButton(glyph = "⚙", onClick = onSettings, small = true)
+            SidebarIconButton(glyph = "⚙", onClick = onSettings, size = 20.dp)
         }
     }
 }
@@ -261,10 +271,14 @@ private fun SidebarEmptyHint(text: String) {
 }
 
 @Composable
-private fun SidebarIconButton(glyph: String, onClick: () -> Unit, small: Boolean = false) {
+private fun SidebarIconButton(
+    glyph: String,
+    onClick: () -> Unit,
+    size: Dp = 22.dp,
+    style: TextStyle = MaterialTheme.typography.labelSmall,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val size = if (small) 20.dp else 22.dp
     Box(
         Modifier
             .size(size)
@@ -274,6 +288,6 @@ private fun SidebarIconButton(glyph: String, onClick: () -> Unit, small: Boolean
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(glyph, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(glyph, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
