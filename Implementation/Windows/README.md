@@ -58,10 +58,10 @@ What works right now:
   read as flat and generic — are replaced with colored, hover-responsive
   circular buttons in the app's indigo/teal/amber/rose palette. Dragging
   the bar moves the window (`WindowDraggableArea`).
-- App identity: a generated wallet/coin icon (indigo → teal, matching the
-  UI theme) wired into the runtime window, title bar, and the installer,
-  plus an indigo/teal Material3 theme (`Theme.kt`) instead of default
-  colors.
+- App identity: a generated icon — two stacked gold coins with a ₹ symbol,
+  on the indigo → teal gradient background matching the UI theme — wired
+  into the runtime window, title bar, and the installer, plus an
+  indigo/teal Material3 theme (`Theme.kt`) instead of default colors.
 - Light/dark toggle at the bottom of the sidebar (`ThemeToggleSwitch.kt`)
   — a slide switch, not a button: dark on the left, light on the right,
   thumb position shows which is active. On first run (no saved choice
