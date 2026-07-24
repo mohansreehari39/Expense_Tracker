@@ -13,12 +13,15 @@ import et.windows.server.SetBudgetRequest
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripDto
 import et.windows.server.TripExpenseDto
+import et.windows.server.UpdateHouseholdRequest
+import et.windows.server.UpdateTripRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
@@ -43,6 +46,12 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun household(householdId: String): HouseholdResponse =
         client.get("$baseUrl/api/v1/households/$householdId").body()
+
+    suspend fun updateHousehold(householdId: String, name: String): HouseholdDto =
+        client.put("$baseUrl/api/v1/households/$householdId") {
+            contentType(ContentType.Application.Json)
+            setBody(UpdateHouseholdRequest(name))
+        }.body()
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
@@ -74,6 +83,12 @@ class ApiClient(private val baseUrl: String) {
         }.body()
 
     suspend fun trip(tripId: String): TripDetailResponse = client.get("$baseUrl/api/v1/trips/$tripId").body()
+
+    suspend fun updateTrip(tripId: String, request: UpdateTripRequest): TripDto =
+        client.put("$baseUrl/api/v1/trips/$tripId") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 
     suspend fun addTripExpense(tripId: String, request: AddTripExpenseRequest): TripExpenseDto =
         client.post("$baseUrl/api/v1/trips/$tripId/expenses") {

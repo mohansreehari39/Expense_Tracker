@@ -48,6 +48,9 @@ data class HouseholdResponse(val household: HouseholdDto, val categories: List<C
 data class CreateHouseholdRequest(val name: String)
 
 @Serializable
+data class UpdateHouseholdRequest(val name: String)
+
+@Serializable
 data class MonthlyBudgetDto(val id: String, val year: Int, val month: Int, val totalAmount: MoneyDto)
 
 fun MonthlyBudget.toDto() = MonthlyBudgetDto(id, year, month, totalAmount.toDto())
@@ -140,6 +143,9 @@ data class CreateTripRequest(
     val currency: String,
     val participantNames: List<String>,
 )
+
+@Serializable
+data class UpdateTripRequest(val name: String, val budgetAmountMinorUnits: Long, val currency: String)
 
 @Serializable
 data class AddTripExpenseRequest(
