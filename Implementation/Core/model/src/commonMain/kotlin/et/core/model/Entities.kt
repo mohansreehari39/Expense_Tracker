@@ -1,0 +1,109 @@
+package et.core.model
+
+/**
+ * Entities from Design/Core/02-data-model.md. Each is a plain data class —
+ * the source of truth for a "current" row is the fold over the Operation
+ * log (see core-sync), not direct mutation of these instances.
+ */
+
+data class Household(
+    val id: String,
+    val name: String,
+    val createdAt: Long,
+)
+
+data class Member(
+    val id: String,
+    val householdId: String,
+    val displayName: String,
+    val deviceId: String,
+)
+
+data class Category(
+    val id: String,
+    val householdId: String,
+    val name: String,
+    val icon: String,
+    val isArchived: Boolean = false,
+)
+
+data class MonthlyBudget(
+    val id: String,
+    val householdId: String,
+    val year: Int,
+    val month: Int, // 1..12
+    val totalAmount: Money,
+    val perCategoryAllocation: Map<String, Money> = emptyMap(),
+)
+
+data class HouseholdExpense(
+    val id: String,
+    val householdId: String,
+    val categoryId: String,
+    val amount: Money,
+    val paidByMemberId: String,
+    val occurredAt: Long,
+    val note: String = "",
+    val createdByDeviceId: String,
+    val createdAt: Long,
+)
+
+data class Trip(
+    val id: String,
+    val name: String,
+    val startDate: Long,
+    val endDate: Long?,
+    val budgetAmount: Money,
+    val createdBy: String,
+    val isClosed: Boolean = false,
+)
+
+data class TripParticipant(
+    val id: String,
+    val tripId: String,
+    val displayName: String,
+    val memberId: String? = null,
+)
+
+data class TripExpense(
+    val id: String,
+    val tripId: String,
+    val categoryId: String? = null,
+    val amount: Money,
+    val paidByParticipantId: String,
+    val occurredAt: Long,
+    val note: String = "",
+)
+
+/**
+ * The split *mode* (equal/exact/percentage/shares) is a core-domain, UI-facing
+ * concept used only to compute this record — see
+ * Design/Core/05-domain-logic.md#split-validation. Whatever mode was used,
+ * an ExpenseSplit always stores the resulting concrete amount, never a
+ * percentage or weight, so balance derivation never needs to know how a
+ * split was originally entered.
+ */
+data class ExpenseSplit(
+    val id: String,
+    val tripExpenseId: String,
+    val participantId: String,
+    val shareAmount: Money,
+)
+
+data class Settlement(
+    val id: String,
+    val tripId: String,
+    val fromParticipantId: String,
+    val toParticipantId: String,
+    val amount: Money,
+    val settledAt: Long,
+    val note: String = "",
+)
+
+data class Device(
+    val deviceId: String,
+    val householdId: String,
+    val ownerMemberId: String,
+    val lastSeenHlc: Hlc?,
+    val publicKey: String,
+)

@@ -1,0 +1,22 @@
+# Gradle / Kotlin
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android (added when Implementation/Android gains a real project)
+*.apk
+local.properties
+.cxx/
+
+# Logs
+*.log
