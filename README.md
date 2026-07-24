@@ -35,9 +35,9 @@ An Android app + Windows app for tracking household and trip expenses.
 | Folder | Contents |
 |---|---|
 | [`Arch/`](Arch/00-README.md) | System architecture — sync protocol, data model, subsystem designs, tech stack |
-| `Design/` | Detailed design (API contracts, schemas, screen designs) implementing the architecture |
-| `Implementation/` | Application source code |
-| `Test/` | Test plans and test code |
+| [`Design/`](Design/README.md) | Detailed design (API contracts, schemas, screen designs) implementing the architecture |
+| [`Implementation/`](Implementation/README.md) | Application source code |
+| [`Test/`](Test/README.md) | Test plans and test code |
 
 Start with [`Arch/00-README.md`](Arch/00-README.md) for the full architecture writeup.
 
