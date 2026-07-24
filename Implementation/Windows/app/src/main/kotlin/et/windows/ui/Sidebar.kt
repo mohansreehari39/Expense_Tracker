@@ -119,7 +119,11 @@ fun Sidebar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Dark Mode", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (darkTheme) "Dark Mode" else "Light Mode",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         ThemeToggleSwitch(darkTheme = darkTheme, onToggle = onToggleTheme)
     }
     }
