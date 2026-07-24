@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,8 +57,10 @@ fun Sidebar(
     api: ApiClient,
     selection: Selection,
     refreshSignal: Int,
+    darkTheme: Boolean,
     onSelect: (Selection) -> Unit,
     onChanged: () -> Unit,
+    onToggleTheme: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var households by remember { mutableStateOf<List<HouseholdDto>>(emptyList()) }
@@ -74,9 +77,10 @@ fun Sidebar(
 
     LaunchedEffect(refreshSignal) { reload() }
 
+    Column(modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
     Column(
-        modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+        Modifier
+            .weight(1f)
             .verticalScroll(rememberScrollState())
             .padding(vertical = 16.dp),
     ) {
@@ -107,6 +111,17 @@ fun Sidebar(
             )
         }
         if (trips.isEmpty()) SidebarEmptyHint("No activities yet")
+    }
+
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Dark Mode", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ThemeToggleSwitch(darkTheme = darkTheme, onToggle = onToggleTheme)
+    }
     }
 
     if (showCreateHousehold) {

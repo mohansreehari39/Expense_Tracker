@@ -42,11 +42,6 @@ fun FrameWindowScope.DashboardApp(
             Column(Modifier.fillMaxSize()) {
                 WindowTitleBar(
                     icon = icon,
-                    darkTheme = darkTheme,
-                    onToggleTheme = {
-                        darkTheme = !darkTheme
-                        ThemePreference.save(darkTheme)
-                    },
                     isMaximized = windowState.placement == WindowPlacement.Maximized,
                     onMinimize = onMinimize,
                     onToggleMaximize = onToggleMaximize,
@@ -58,8 +53,13 @@ fun FrameWindowScope.DashboardApp(
                         api = api,
                         selection = selection,
                         refreshSignal = refreshSignal,
+                        darkTheme = darkTheme,
                         onSelect = { selection = it },
                         onChanged = { refreshSignal++ },
+                        onToggleTheme = {
+                            darkTheme = it
+                            ThemePreference.save(it)
+                        },
                         modifier = Modifier.width(260.dp).fillMaxHeight(),
                     )
 
