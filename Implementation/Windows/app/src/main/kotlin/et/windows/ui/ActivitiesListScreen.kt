@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,11 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,12 +26,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import et.windows.server.CreateTripRequest
 import et.windows.server.TripDto
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivitiesListScreen(api: ApiClient, onOpenTrip: (String) -> Unit) {
+fun ActivitiesListScreen(api: ApiClient, onOpenTrip: (id: String, name: String) -> Unit) {
     var trips by remember { mutableStateOf<List<TripDto>>(emptyList()) }
     var showCreate by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -50,27 +48,26 @@ fun ActivitiesListScreen(api: ApiClient, onOpenTrip: (String) -> Unit) {
 
     LaunchedEffect(Unit) { reload() }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Activities") }) },
-    ) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize()) {
-            error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
+    Column(Modifier.padding(24.dp).fillMaxSize()) {
+        error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Activities", style = MaterialTheme.typography.headlineSmall)
             Button(onClick = { showCreate = true }) { Text("+ New Activity") }
-            Spacer(Modifier.height(16.dp))
+        }
+        Spacer(Modifier.height(20.dp))
 
-            if (trips.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No activities yet. Create one for a trip or any time-bound, group expense.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(trips) { trip ->
-                        TripCard(trip, onClick = { onOpenTrip(trip.id) })
-                    }
+        if (trips.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No activities yet. Create one for a trip or any time-bound, group expense.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(trips) { trip ->
+                    TripCard(trip, onClick = { onOpenTrip(trip.id, trip.name) })
                 }
             }
         }
@@ -82,7 +79,7 @@ fun ActivitiesListScreen(api: ApiClient, onOpenTrip: (String) -> Unit) {
             onSubmit = { name, budgetMinorUnits, currency, participantNames ->
                 scope.launch {
                     api.createTrip(
-                        et.windows.server.CreateTripRequest(
+                        CreateTripRequest(
                             name = name,
                             startDate = System.currentTimeMillis(),
                             budgetAmountMinorUnits = budgetMinorUnits,

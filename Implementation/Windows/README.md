@@ -36,15 +36,24 @@ What works right now:
   `DebtSimplification`'s minimal settle-up suggestions — verified
   end-to-end, including a 2-person debt resolving to the correct single
   transfer.
-- Compose Desktop UI: a `NavigationRail` shell with **Households** and
-  **Activities** sections. Each list screen has a create dialog; each
-  detail screen has a budget-status card (red/amber/green, per
-  Design/Core/05-domain-logic.md) and its own **Add Expense** button
-  scoped to that household or activity — never a single global add button.
+- Compose Desktop UI: **browser-style tabs** (`DashboardApp.kt`). Two
+  pinned tabs, "🏠 Household" and "✈️ Activities", each showing a list +
+  create dialog. Clicking an item opens a new closable tab (like a browser
+  tab) for that specific household/activity, so several can be open side
+  by side. Each open tab has its own title-bar-style header with an
+  **➕ Add Expense** icon and a **⚙️ Settings** icon (opens a rename/
+  budget-edit popup — `HouseholdSettingsDialog.kt`/`TripSettingsDialog.kt`,
+  backed by new `PUT /households/{id}` and `PUT /trips/{id}` endpoints)
+  scoped to that tab — never a single global add button. Renaming from
+  Settings updates the open tab's title live.
+- Each detail tab has a **Dashboard** (the red/amber/green budget-status
+  card, per Design/Core/05-domain-logic.md) and an **Analytics** section:
+  a dependency-free Canvas-based bar chart (`SimpleBarChart.kt`) — spend-
+  by-category for households, per-participant balances for activities.
 - App identity: a generated wallet/coin icon (indigo → teal, matching the
   UI theme) wired into both the runtime window and the installer, and an
   indigo/teal Material3 theme (`Theme.kt`) instead of default colors.
-- Light/dark toggle in the navigation rail (sun/moon button) — choice is
+- Light/dark toggle in the top header (sun/moon button) — choice is
   remembered across launches in `~/.kharcha/theme.txt`
   (`ThemePreference.kt`). Defaults to light on first run; no OS-preference
   auto-detection yet.
@@ -107,7 +116,9 @@ proper installer.
 
 ## Not implemented yet (later passes)
 
-- Analytics screen, devices/pairing screen, and their REST endpoints.
+- Devices/pairing screen and its REST endpoints.
+- Category management (rename/add/archive) has no UI yet — the settings
+  popup only covers rename + budget.
 - Trip expense splits are equal-only in the UI for now — `core-domain`'s
   `SplitCalculator` already supports exact/percentage/weighted, just no
   dialog for picking a mode yet.

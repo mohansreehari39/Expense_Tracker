@@ -10,9 +10,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
+import et.core.model.Household
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
@@ -71,6 +73,16 @@ private fun Route.households(services: AppServices) {
                     ?: return@get call.respond(HttpStatusCode.NotFound)
                 val categories = services.repository.categories(householdId)
                 call.respond(HouseholdResponse(household.toDto(), categories.map { it.toDto() }))
+            }
+
+            put {
+                val householdId = call.parameters["householdId"]!!
+                val existing = services.repository.household(householdId)
+                    ?: return@put call.respond(HttpStatusCode.NotFound)
+                val request = call.receive<UpdateHouseholdRequest>()
+                val updated = Household(id = existing.id, name = request.name, createdAt = existing.createdAt)
+                services.repository.saveHousehold(updated)
+                call.respond(updated.toDto())
             }
 
             route("/budgets") {
@@ -205,6 +217,18 @@ private fun Route.trips(services: AppServices) {
                         suggestedSettlements = suggestions.map { it.toDto() },
                     ),
                 )
+            }
+
+            put {
+                val tripId = call.parameters["tripId"]!!
+                val existing = services.repository.trip(tripId) ?: return@put call.respond(HttpStatusCode.NotFound)
+                val request = call.receive<UpdateTripRequest>()
+                val updated = existing.copy(
+                    name = request.name,
+                    budgetAmount = Money(request.budgetAmountMinorUnits, request.currency),
+                )
+                services.repository.saveTrip(updated)
+                call.respond(updated.toDto(tripEvaluation(services, tripId, updated.budgetAmount).toDto()))
             }
 
             route("/expenses") {

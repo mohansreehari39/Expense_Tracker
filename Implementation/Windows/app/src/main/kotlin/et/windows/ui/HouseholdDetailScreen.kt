@@ -11,16 +11,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.CategoryDto
@@ -37,15 +33,15 @@ import et.windows.server.WeekEvaluationDto
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HouseholdDetailScreen(api: ApiClient, householdId: String, onBack: () -> Unit) {
+fun HouseholdDetailScreen(api: ApiClient, householdId: String, onRenamed: (String) -> Unit) {
     var householdName by remember { mutableStateOf("") }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
     var weeks by remember { mutableStateOf<List<WeekEvaluationDto>>(emptyList()) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
     var showSetBudget by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
@@ -72,64 +68,81 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, onBack: () -> Uni
     }
     val currency = currentWeek?.evaluation?.allocated?.currency ?: "INR"
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(householdName.ifBlank { "Household" }) },
-                navigationIcon = { IconButton(onClick = onBack) { Text("←") } },
-            )
-        },
-        floatingActionButton = {
-            if (categories.isNotEmpty()) {
-                FloatingActionButton(onClick = { showAddExpense = true }) {
-                    Text("+", style = MaterialTheme.typography.headlineSmall)
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
+            Row {
+                IconButton(onClick = { showAddExpense = true }, enabled = categories.isNotEmpty()) { Text("➕") }
+                IconButton(onClick = { showSettings = true }) { Text("⚙️") }
+            }
+        }
+
+        LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
+                error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("This Week", style = MaterialTheme.typography.titleMedium)
+                    OutlinedButton(onClick = { showSetBudget = true }) { Text(if (currentWeek == null) "Set Budget" else "Update Budget") }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (currentWeek != null) {
+                    BudgetStatusBanner(currentWeek.evaluation)
+                } else {
+                    Card(Modifier.fillMaxWidth()) {
+                        Text(
+                            "No budget set for this month yet.",
+                            modifier = Modifier.padding(16.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                if (expenses.isNotEmpty()) {
+                    Spacer(Modifier.height(24.dp))
+                    Text("Spending by Category", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Card(Modifier.fillMaxWidth()) {
+                        val totals = expenses.groupBy { it.categoryId }
+                            .mapValues { (_, v) -> v.sumOf { it.amount.minorUnits } }
+                            .toList()
+                            .sortedByDescending { it.second }
+                        val entries = totals.mapIndexed { index, (categoryId, total) ->
+                            val name = categories.find { it.id == categoryId }?.name ?: "Other"
+                            BarEntry(
+                                label = name,
+                                value = total,
+                                color = chartPalette[index % chartPalette.size],
+                                valueText = formatMoney(et.windows.server.MoneyDto(total, currency)),
+                            )
+                        }
+                        SimpleBarChart(entries, modifier = Modifier.fillMaxWidth().padding(16.dp))
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+                Text("Recent Expenses", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                if (expenses.isEmpty()) {
+                    Text("No expenses recorded this month yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize()) {
-            error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("This Week", style = MaterialTheme.typography.titleMedium)
-                OutlinedButton(onClick = { showSetBudget = true }) { Text(if (currentWeek == null) "Set Budget" else "Update Budget") }
-            }
-            Spacer(Modifier.height(8.dp))
-            if (currentWeek != null) {
-                BudgetStatusBanner(currentWeek.evaluation)
-            } else {
-                Card(Modifier.fillMaxWidth()) {
-                    Text(
-                        "No budget set for this month yet.",
-                        modifier = Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-            Text("Recent Expenses", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-            if (expenses.isEmpty()) {
-                Text("No expenses recorded this month yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(expenses) { expense ->
-                        val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
-                        Card(Modifier.fillMaxWidth()) {
-                            Row(
-                                Modifier.padding(16.dp).fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Column {
-                                    Text(categoryName, style = MaterialTheme.typography.bodyLarge)
-                                    if (expense.note.isNotBlank()) {
-                                        Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                                Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+            items(expenses) { expense ->
+                val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
+                Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                    Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text(categoryName, style = MaterialTheme.typography.bodyLarge)
+                            if (expense.note.isNotBlank()) {
+                                Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
+                        Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
@@ -164,4 +177,21 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, onBack: () -> Uni
             },
         )
     }
+
+    if (showSettings) {
+        HouseholdSettingsDialog(
+            currentName = householdName,
+            onDismiss = { showSettings = false },
+            onSave = { newName ->
+                scope.launch {
+                    api.updateHousehold(householdId, newName)
+                    showSettings = false
+                    onRenamed(newName)
+                    reload()
+                }
+            },
+        )
+    }
 }
+
+private val chartPalette = listOf(Indigo, Teal, Amber, Rose, IndigoDark)

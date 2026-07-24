@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,11 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,9 +29,8 @@ import androidx.compose.ui.unit.dp
 import et.windows.server.HouseholdDto
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HouseholdsListScreen(api: ApiClient, onOpenHousehold: (String) -> Unit) {
+fun HouseholdsListScreen(api: ApiClient, onOpenHousehold: (id: String, name: String) -> Unit) {
     var households by remember { mutableStateOf<List<HouseholdDto>>(emptyList()) }
     var showCreate by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -50,27 +47,26 @@ fun HouseholdsListScreen(api: ApiClient, onOpenHousehold: (String) -> Unit) {
 
     LaunchedEffect(Unit) { reload() }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Households") }) },
-    ) { padding ->
-        Column(Modifier.padding(padding).padding(24.dp).fillMaxSize()) {
-            error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
+    Column(Modifier.padding(24.dp).fillMaxSize()) {
+        error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
+        Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+            Text("Households", style = MaterialTheme.typography.headlineSmall)
             Button(onClick = { showCreate = true }) { Text("+ New Household") }
-            Spacer(Modifier.height(16.dp))
+        }
+        Spacer(Modifier.height(20.dp))
 
-            if (households.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No households yet. Create one to start tracking monthly expenses.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-                    items(households) { household ->
-                        HouseholdCard(household, onClick = { onOpenHousehold(household.id) })
-                    }
+        if (households.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No households yet. Create one to start tracking monthly expenses.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+                items(households) { household ->
+                    HouseholdCard(household, onClick = { onOpenHousehold(household.id, household.name) })
                 }
             }
         }
