@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -34,14 +34,13 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 @Composable
-fun HouseholdDetailScreen(api: ApiClient, householdId: String, onRenamed: (String) -> Unit) {
+fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: Int) {
     var householdName by remember { mutableStateOf("") }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
     var weeks by remember { mutableStateOf<List<WeekEvaluationDto>>(emptyList()) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
     var showSetBudget by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
@@ -59,7 +58,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, onRenamed: (Strin
         }
     }
 
-    LaunchedEffect(householdId) { reload() }
+    LaunchedEffect(householdId, refreshSignal) { reload() }
 
     val currentWeek = weeks.find {
         val start = LocalDate.parse(it.weekStart)
@@ -75,10 +74,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, onRenamed: (Strin
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
-            Row {
-                IconButton(onClick = { showAddExpense = true }, enabled = categories.isNotEmpty()) { Text("➕") }
-                IconButton(onClick = { showSettings = true }) { Text("⚙️") }
-            }
+            Button(onClick = { showAddExpense = true }, enabled = categories.isNotEmpty()) { Text("➕ Add Expense") }
         }
 
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -172,21 +168,6 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, onRenamed: (Strin
                 scope.launch {
                     api.setBudget(householdId, SetBudgetRequest(today.year, today.monthValue, amountMinorUnits, curr))
                     showSetBudget = false
-                    reload()
-                }
-            },
-        )
-    }
-
-    if (showSettings) {
-        HouseholdSettingsDialog(
-            currentName = householdName,
-            onDismiss = { showSettings = false },
-            onSave = { newName ->
-                scope.launch {
-                    api.updateHousehold(householdId, newName)
-                    showSettings = false
-                    onRenamed(newName)
                     reload()
                 }
             },
