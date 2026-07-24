@@ -1,0 +1,192 @@
+-- Two-tier schema per Design/Core/03-sync-protocol.md and
+-- Design/Windows/02-transport-implementation.md: an append-only operation
+-- log (the sync substrate) plus read-optimized materialized tables that
+-- the repository keeps in sync with it. v0 has no peer sync wired up yet,
+-- so the log is currently written-but-not-yet-transmitted — it's here so
+-- adding real sync later doesn't require a schema migration.
+
+CREATE TABLE operationLog (
+    opId TEXT NOT NULL PRIMARY KEY,
+    entityType TEXT NOT NULL,
+    entityId TEXT NOT NULL,
+    opType TEXT NOT NULL,
+    patchJson TEXT NOT NULL,
+    authorDeviceId TEXT NOT NULL,
+    hlcPhysical INTEGER NOT NULL,
+    hlcCounter INTEGER NOT NULL,
+    receivedFrom TEXT
+);
+
+CREATE INDEX operationLog_frontier ON operationLog(authorDeviceId, hlcPhysical, hlcCounter);
+
+insertOperation:
+INSERT OR IGNORE INTO operationLog (opId, entityType, entityId, opType, patchJson, authorDeviceId, hlcPhysical, hlcCounter, receivedFrom)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+allOperations:
+SELECT * FROM operationLog;
+
+-- Materialized tables --------------------------------------------------
+
+CREATE TABLE household (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+upsertHousehold:
+INSERT OR REPLACE INTO household (id, name, createdAt) VALUES (?, ?, ?);
+
+selectHousehold:
+SELECT * FROM household LIMIT 1;
+
+CREATE TABLE category (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    isArchived INTEGER NOT NULL DEFAULT 0
+);
+
+upsertCategory:
+INSERT OR REPLACE INTO category (id, householdId, name, icon, isArchived) VALUES (?, ?, ?, ?, ?);
+
+selectCategories:
+SELECT * FROM category WHERE householdId = ? AND isArchived = 0;
+
+CREATE TABLE monthlyBudget (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    totalAmountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    perCategoryJson TEXT NOT NULL,
+    UNIQUE(householdId, year, month)
+);
+
+upsertMonthlyBudget:
+INSERT OR REPLACE INTO monthlyBudget (id, householdId, year, month, totalAmountMinorUnits, currency, perCategoryJson)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+selectMonthlyBudget:
+SELECT * FROM monthlyBudget WHERE householdId = ? AND year = ? AND month = ?;
+
+CREATE TABLE householdExpense (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    categoryId TEXT NOT NULL,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    paidByMemberId TEXT NOT NULL,
+    occurredAt INTEGER NOT NULL,
+    note TEXT NOT NULL,
+    createdByDeviceId TEXT NOT NULL,
+    createdAt INTEGER NOT NULL
+);
+
+CREATE INDEX householdExpense_occurredAt ON householdExpense(householdId, occurredAt);
+
+insertHouseholdExpense:
+INSERT INTO householdExpense (id, householdId, categoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note, createdByDeviceId, createdAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectHouseholdExpensesBetween:
+SELECT * FROM householdExpense WHERE householdId = ? AND occurredAt >= ? AND occurredAt < ? ORDER BY occurredAt DESC;
+
+CREATE TABLE trip (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    startDate INTEGER NOT NULL,
+    endDate INTEGER,
+    budgetAmountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    createdBy TEXT NOT NULL,
+    isClosed INTEGER NOT NULL DEFAULT 0
+);
+
+upsertTrip:
+INSERT OR REPLACE INTO trip (id, name, startDate, endDate, budgetAmountMinorUnits, currency, createdBy, isClosed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectTrips:
+SELECT * FROM trip ORDER BY startDate DESC;
+
+selectTrip:
+SELECT * FROM trip WHERE id = ?;
+
+CREATE TABLE tripParticipant (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    memberId TEXT
+);
+
+insertTripParticipant:
+INSERT INTO tripParticipant (id, tripId, displayName, memberId) VALUES (?, ?, ?, ?);
+
+selectTripParticipants:
+SELECT * FROM tripParticipant WHERE tripId = ?;
+
+CREATE TABLE tripExpense (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    categoryId TEXT,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    paidByParticipantId TEXT NOT NULL,
+    occurredAt INTEGER NOT NULL,
+    note TEXT NOT NULL
+);
+
+insertTripExpense:
+INSERT INTO tripExpense (id, tripId, categoryId, amountMinorUnits, currency, paidByParticipantId, occurredAt, note)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectTripExpenses:
+SELECT * FROM tripExpense WHERE tripId = ? ORDER BY occurredAt DESC;
+
+CREATE TABLE expenseSplit (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripExpenseId TEXT NOT NULL,
+    participantId TEXT NOT NULL,
+    shareAmountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL
+);
+
+insertExpenseSplit:
+INSERT INTO expenseSplit (id, tripExpenseId, participantId, shareAmountMinorUnits, currency)
+VALUES (?, ?, ?, ?, ?);
+
+selectExpenseSplits:
+SELECT * FROM expenseSplit WHERE tripExpenseId = ?;
+
+CREATE TABLE settlement (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripId TEXT NOT NULL,
+    fromParticipantId TEXT NOT NULL,
+    toParticipantId TEXT NOT NULL,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    settledAt INTEGER NOT NULL,
+    note TEXT NOT NULL
+);
+
+insertSettlement:
+INSERT INTO settlement (id, tripId, fromParticipantId, toParticipantId, amountMinorUnits, currency, settledAt, note)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectSettlements:
+SELECT * FROM settlement WHERE tripId = ?;
+
+CREATE TABLE device (
+    deviceId TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    ownerMemberId TEXT NOT NULL,
+    lastSeenHlcPhysical INTEGER,
+    lastSeenHlcCounter INTEGER,
+    publicKey TEXT NOT NULL
+);
+
+selectDevices:
+SELECT * FROM device;
