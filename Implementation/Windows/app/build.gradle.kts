@@ -75,6 +75,11 @@ compose.desktop {
                 shortcut = true
                 dirChooser = true
                 perUserInstall = true
+                // Stable across versions so a later installer upgrades this
+                // install in place (Add/Remove Programs) instead of creating
+                // a second entry. Generated once for this project — do not
+                // regenerate.
+                upgradeUuid = "8f2e6b3a-3f7f-4b8a-9b0a-6c2e2b4f6d31"
             }
         }
     }
