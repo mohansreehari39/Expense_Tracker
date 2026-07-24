@@ -19,7 +19,21 @@ Run it:
 
 This opens a Compose Desktop window titled "Kharcha" and starts the Ktor
 API on `localhost:47321`. There's no seed data — create a household (or an
-activity) from the UI to get started.
+activity) from the UI to get started, or populate it in one shot for UI
+testing:
+
+```powershell
+# with the app already running, from Implementation/Windows in PowerShell
+.\scripts\seed-data.ps1
+```
+
+(`scripts/seed-data.sh` is the same thing for WSL/Linux/macOS.) Both talk
+to the same REST API the UI uses — nothing special, just automated
+clicking. They create two households (one deliberately near its weekly
+limit, to see the amber status; one comfortably under) and two activities
+(a 3-person trip with mixed balances and settle-up suggestions, plus a
+simple 2-person one), dated across the current week/month so the weekly
+chart and category breakdown aren't empty either.
 
 What works right now:
 - SQLDelight persistence (`app/src/main/sqldelight/et/windows/db/sql/Schema.sq`)
