@@ -33,3 +33,11 @@ The `gh` CLI is installed and authenticated for this repo (remote:
 requests instead of only leaving changes local — give each PR a clear title
 (following the `et: ` commit convention) and a description with a summary
 and test plan.
+
+## Branching
+
+Do not create a new git branch to commit changes. Always commit to
+whichever branch is currently checked out. If that branch is `main` and
+the push is rejected because `main` is protected on GitHub, stop and tell
+the user instead of creating a branch yourself — let them create/switch to
+a branch, then commit there.
