@@ -44,12 +44,22 @@ itself renders when running `./gradlew :app:run` on a real machine (WSLg
 with GPU passthrough, or native Windows/Linux) — if the same GL error shows
 up there, that's the next thing to debug.
 
-## Building a double-click .exe
+## Building a setup.exe installer
 
 `app/build.gradle.kts` configures `compose.desktop.application.nativeDistributions`
-with `TargetFormat.Exe`. This **must be run on Windows itself** — `jpackage`
-(which does the packaging) builds for whatever OS it's running on; it can't
-cross-build a Windows installer from Linux/WSL.
+with `TargetFormat.Exe`. The resulting installer is **fully self-contained**
+— `jpackage` bundles a private, trimmed JRE (via `jlink`) into it, so the
+*installed* app needs no Java on the machine it's installed on. It behaves
+like any normal Windows installer: double-click, click through, get a Start
+Menu + Desktop shortcut and an "Add or Remove Programs" entry.
+
+The JDK/WiX prerequisites below are only needed on **the machine building
+the installer** — once you have `ExpenseTracker-0.1.0.exe`, it's portable;
+copy it anywhere and running it needs nothing else installed.
+
+This build step **must run on Windows itself** — `jpackage` builds for
+whatever OS it's running on; it can't cross-build a Windows installer from
+Linux/WSL.
 
 Prerequisites on the Windows machine doing the build:
 1. A JDK (21+) installed on Windows, with `JAVA_HOME` set — e.g.
