@@ -1,3 +1,5 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
 plugins {
     kotlin("jvm")
     alias(libs.plugins.kotlin.serialization)
@@ -56,5 +58,24 @@ kotlin {
 compose.desktop {
     application {
         mainClass = "et.windows.MainKt"
+
+        nativeDistributions {
+            // Exe = a double-click installer (needs WiX Toolset on the
+            // Windows machine that runs `packageExe`); jpackage can't
+            // cross-build a Windows package from Linux/WSL, so this must
+            // be run on Windows itself. See Implementation/Windows/README.md.
+            targetFormats(TargetFormat.Exe)
+            packageName = "ExpenseTracker"
+            packageVersion = "0.1.0"
+            description = "Household and trip expense tracker — dashboard and server"
+            vendor = "Expense Tracker"
+
+            windows {
+                menu = true
+                shortcut = true
+                dirChooser = true
+                perUserInstall = true
+            }
+        }
     }
 }
