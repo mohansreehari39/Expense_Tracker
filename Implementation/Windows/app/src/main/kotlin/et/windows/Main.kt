@@ -4,8 +4,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import et.core.model.HlcClock
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
@@ -41,8 +44,29 @@ fun main() {
 
     application {
         val icon = remember { BitmapPainter(useResource("icon.png") { loadImageBitmap(it) }) }
-        Window(onCloseRequest = ::exitApplication, title = "Kharcha", icon = icon) {
-            DashboardApp(ApiClient("http://localhost:$DEFAULT_PORT"))
+        val windowState = rememberWindowState(width = 1200.dp, height = 800.dp)
+
+        // Undecorated so we can draw our own title bar/window controls — see
+        // DashboardApp's title bar composable. Still resizable via edge-drag.
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "Kharcha",
+            icon = icon,
+            state = windowState,
+            undecorated = true,
+            resizable = true,
+        ) {
+            DashboardApp(
+                api = ApiClient("http://localhost:$DEFAULT_PORT"),
+                icon = icon,
+                windowState = windowState,
+                onMinimize = { windowState.isMinimized = true },
+                onToggleMaximize = {
+                    windowState.placement =
+                        if (windowState.placement == WindowPlacement.Maximized) WindowPlacement.Floating else WindowPlacement.Maximized
+                },
+                onClose = ::exitApplication,
+            )
         }
     }
 }

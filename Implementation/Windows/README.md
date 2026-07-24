@@ -36,24 +36,34 @@ What works right now:
   `DebtSimplification`'s minimal settle-up suggestions — verified
   end-to-end, including a 2-person debt resolving to the correct single
   transfer.
-- Compose Desktop UI: **browser-style tabs** (`DashboardApp.kt`). Two
-  pinned tabs, "🏠 Household" and "✈️ Activities", each showing a list +
-  create dialog. Clicking an item opens a new closable tab (like a browser
-  tab) for that specific household/activity, so several can be open side
-  by side. Each open tab has its own title-bar-style header with an
-  **➕ Add Expense** icon and a **⚙️ Settings** icon (opens a rename/
-  budget-edit popup — `HouseholdSettingsDialog.kt`/`TripSettingsDialog.kt`,
-  backed by new `PUT /households/{id}` and `PUT /trips/{id}` endpoints)
-  scoped to that tab — never a single global add button. Renaming from
-  Settings updates the open tab's title live.
-- Each detail tab has a **Dashboard** (the red/amber/green budget-status
-  card, per Design/Core/05-domain-logic.md) and an **Analytics** section:
-  a dependency-free Canvas-based bar chart (`SimpleBarChart.kt`) — spend-
-  by-category for households, per-participant balances for activities.
+- Compose Desktop UI: a **Slack-style sidebar** (`Sidebar.kt`), not tabs.
+  Two persistent grouped sections, "HOUSEHOLD" and "ACTIVITIES", each with
+  a "+" to create and a small status dot per row (green/amber/red, from
+  the same budget evaluation as the dashboard). Clicking a row selects it
+  as the single main-content view on the right (`DashboardApp.kt`) — like
+  clicking a channel in Slack. Hovering a row reveals a **⚙ gear** icon
+  right there in the sidebar, which opens a rename/budget-edit popup
+  (`HouseholdSettingsDialog.kt`/`TripSettingsDialog.kt`, backed by
+  `PUT /households/{id}` and `PUT /trips/{id}`) — settings live in the
+  sidebar, not in the main content header. The main content header has
+  only a single **➕ Add Expense** button, scoped to whichever household/
+  activity is selected.
+- The selected item's main content is a **Dashboard** (the red/amber/green
+  budget-status card, per Design/Core/05-domain-logic.md) plus an
+  **Analytics** section: a dependency-free Canvas-based bar chart
+  (`SimpleBarChart.kt`) — spend-by-category for households, per-
+  participant balances for activities.
+- **Custom title bar** (`WindowTitleBar.kt`): the window is undecorated
+  (`Main.kt`) so the default OS minimize/maximize/close buttons — which
+  read as flat and generic — are replaced with colored, hover-responsive
+  circular buttons in the app's indigo/teal/amber/rose palette. Dragging
+  the bar moves the window (`WindowDraggableArea`); the light/dark toggle
+  also lives here now.
 - App identity: a generated wallet/coin icon (indigo → teal, matching the
-  UI theme) wired into both the runtime window and the installer, and an
-  indigo/teal Material3 theme (`Theme.kt`) instead of default colors.
-- Light/dark toggle in the top header (sun/moon button) — choice is
+  UI theme) wired into the runtime window, title bar, and the installer,
+  plus an indigo/teal Material3 theme (`Theme.kt`) instead of default
+  colors.
+- Light/dark toggle in the custom title bar (sun/moon button) — choice is
   remembered across launches in `~/.kharcha/theme.txt`
   (`ThemePreference.kt`). Defaults to light on first run; no OS-preference
   auto-detection yet.
@@ -132,3 +142,7 @@ proper installer.
 - The thin web dashboard view.
 - OS dark-mode preference auto-detection (the manual toggle works; there's
   just no "match system" default yet).
+- Windows Aero Snap / edge-snap-to-resize — undecorating the window to
+  draw a custom title bar means the OS no longer owns window-chrome
+  gestures. Basic drag-to-move and edge resizing work; snapping a window
+  to half the screen by dragging it to an edge does not, yet.

@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,14 +27,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.AddTripExpenseRequest
 import et.windows.server.TripDetailResponse
-import et.windows.server.UpdateTripRequest
 import kotlinx.coroutines.launch
 
 @Composable
-fun TripDetailScreen(api: ApiClient, tripId: String, onRenamed: (String) -> Unit) {
+fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
     var detail by remember { mutableStateOf<TripDetailResponse?>(null) }
     var showAddExpense by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -47,7 +45,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, onRenamed: (String) -> Unit
         }
     }
 
-    LaunchedEffect(tripId) { reload() }
+    LaunchedEffect(tripId, refreshSignal) { reload() }
 
     val current = detail
     val currency = current?.trip?.budget?.currency ?: "INR"
@@ -59,11 +57,8 @@ fun TripDetailScreen(api: ApiClient, tripId: String, onRenamed: (String) -> Unit
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(current?.trip?.name ?: "Activity", style = MaterialTheme.typography.headlineSmall)
-            Row {
-                IconButton(onClick = { showAddExpense = true }, enabled = current != null && current.participants.isNotEmpty()) {
-                    Text("➕")
-                }
-                IconButton(onClick = { showSettings = true }, enabled = current != null) { Text("⚙️") }
+            Button(onClick = { showAddExpense = true }, enabled = current != null && current.participants.isNotEmpty()) {
+                Text("➕ Add Expense")
             }
         }
 
@@ -177,23 +172,6 @@ fun TripDetailScreen(api: ApiClient, tripId: String, onRenamed: (String) -> Unit
                         ),
                     )
                     showAddExpense = false
-                    reload()
-                }
-            },
-        )
-    }
-
-    if (showSettings && current != null) {
-        TripSettingsDialog(
-            currentName = current.trip.name,
-            currentBudgetMinorUnits = current.trip.budget.minorUnits,
-            currency = currency,
-            onDismiss = { showSettings = false },
-            onSave = { name, budgetMinorUnits ->
-                scope.launch {
-                    api.updateTrip(tripId, UpdateTripRequest(name, budgetMinorUnits, currency))
-                    showSettings = false
-                    onRenamed(name)
                     reload()
                 }
             },
