@@ -27,6 +27,13 @@ testing:
 .\Test\Windows\seed-data.ps1
 ```
 
+If that fails with "running scripts is disabled on this system" — the
+default PowerShell execution policy on most Windows installs blocks all
+local scripts, unrelated to this one — run it via
+`powershell -ExecutionPolicy Bypass -File .\Test\Windows\seed-data.ps1`
+instead, or allow local scripts for your user once, going forward, with
+`Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`.
+
 (`Test/Windows/seed-data.sh` is the same thing for WSL/Linux/macOS — see
 [`Test/README.md`](../../Test/README.md).) Both talk to the same REST API
 the UI uses — nothing special, just automated clicking. They create two
