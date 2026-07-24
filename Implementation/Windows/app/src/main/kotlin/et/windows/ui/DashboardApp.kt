@@ -32,7 +32,8 @@ fun FrameWindowScope.DashboardApp(
     onToggleMaximize: () -> Unit,
     onClose: () -> Unit,
 ) {
-    var darkTheme by remember { mutableStateOf(ThemePreference.load()) }
+    // Explicit toggle choice wins; otherwise follow the OS theme; otherwise light.
+    var darkTheme by remember { mutableStateOf(ThemePreference.load() ?: SystemTheme.isDark() ?: false) }
     var selection by remember { mutableStateOf<Selection>(Selection.None) }
     var refreshSignal by remember { mutableStateOf(0) }
 

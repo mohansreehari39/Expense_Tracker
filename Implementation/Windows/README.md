@@ -63,10 +63,13 @@ What works right now:
   UI theme) wired into the runtime window, title bar, and the installer,
   plus an indigo/teal Material3 theme (`Theme.kt`) instead of default
   colors.
-- Light/dark toggle in the custom title bar (sun/moon button) — choice is
-  remembered across launches in `~/.kharcha/theme.txt`
-  (`ThemePreference.kt`). Defaults to light on first run; no OS-preference
-  auto-detection yet.
+- Light/dark toggle in the custom title bar (sun/moon button). On first
+  run (no saved choice yet) it follows the OS theme — `SystemTheme.kt`
+  checks the `AppsUseLightTheme` registry value on Windows (`defaults read
+  -g AppleInterfaceStyle` on macOS; unrecognized platforms, including this
+  dev sandbox, fall back to light). Once you use the toggle, that explicit
+  choice is remembered across launches in `~/.kharcha/theme.txt`
+  (`ThemePreference.kt`) and always wins over the OS theme after that.
 
 **Known gap:** rendering the Compose window could not be visually verified
 in the sandboxed environment this was built in — Skiko (Compose's renderer)
@@ -140,8 +143,6 @@ proper installer.
 - System tray / start-on-login.
 - `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.
-- OS dark-mode preference auto-detection (the manual toggle works; there's
-  just no "match system" default yet).
 - Windows Aero Snap / edge-snap-to-resize — undecorating the window to
   draw a custom title bar means the OS no longer owns window-chrome
   gestures. Basic drag-to-move and edge resizing work; snapping a window
