@@ -1,111 +1,89 @@
 package et.windows.ui
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import et.windows.server.CategoryDto
-import et.windows.server.HouseholdDto
-import et.windows.server.HouseholdExpenseDto
-import et.windows.server.WeekEvaluationDto
-import kotlinx.coroutines.launch
-import java.time.LocalDate
 
-@OptIn(ExperimentalMaterial3Api::class)
+private enum class Section(val label: String, val emoji: String) {
+    HOUSEHOLDS("Households", "🏠"),
+    ACTIVITIES("Activities", "✈️"),
+}
+
+private sealed interface Screen {
+    data object List : Screen
+    data class Detail(val id: String) : Screen
+}
+
 @Composable
 fun DashboardApp(api: ApiClient) {
-    MaterialTheme {
-        var household by remember { mutableStateOf<HouseholdDto?>(null) }
-        var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
-        var weeks by remember { mutableStateOf<List<WeekEvaluationDto>>(emptyList()) }
-        var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
-        var showAddExpense by remember { mutableStateOf(false) }
-        var errorMessage by remember { mutableStateOf<String?>(null) }
-        val scope = rememberCoroutineScope()
-        val today = remember { LocalDate.now() }
+    var darkTheme by remember { mutableStateOf(ThemePreference.load()) }
 
-        suspend fun reload() {
-            try {
-                val (h, cats) = api.household()
-                household = h
-                categories = cats
-                weeks = api.monthBudget(today.year, today.monthValue).weeks
-                expenses = api.expenses(today.year, today.monthValue)
-                errorMessage = null
-            } catch (e: Exception) {
-                errorMessage = e.message ?: e::class.simpleName
-            }
-        }
+    KharchaTheme(darkTheme = darkTheme) {
+        var section by remember { mutableStateOf(Section.HOUSEHOLDS) }
+        var householdScreen by remember { mutableStateOf<Screen>(Screen.List) }
+        var activityScreen by remember { mutableStateOf<Screen>(Screen.List) }
 
-        LaunchedEffect(Unit) { reload() }
+        Surface(modifier = Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxSize()) {
+                NavigationRail {
+                    Section.entries.forEach { s ->
+                        NavigationRailItem(
+                            selected = section == s,
+                            onClick = { section = s },
+                            icon = { Text(s.emoji) },
+                            label = { Text(s.label) },
+                        )
+                    }
 
-        Scaffold(
-            topBar = { TopAppBar(title = { Text(household?.name ?: "Expense Tracker") }) },
-            floatingActionButton = {
-                FloatingActionButton(onClick = { showAddExpense = true }) {
-                    Text("+", style = MaterialTheme.typography.headlineSmall)
-                }
-            },
-        ) { padding ->
-            Column(Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
-                errorMessage?.let { Text("Couldn't reach the server: $it", color = Color.Red) }
+                    Spacer(Modifier.weight(1f))
 
-                Text("This Week", style = MaterialTheme.typography.titleMedium)
-                val currentWeek = weeks.find {
-                    val start = LocalDate.parse(it.weekStart)
-                    val end = LocalDate.parse(it.weekEnd)
-                    !today.isBefore(start) && !today.isAfter(end)
-                }
-                if (currentWeek != null) {
-                    BudgetStatusBanner(currentWeek.evaluation)
-                } else {
-                    Text("No budget set for this month yet — set one from the API for now.")
+                    NavigationRailItem(
+                        selected = false,
+                        onClick = {
+                            darkTheme = !darkTheme
+                            ThemePreference.save(darkTheme)
+                        },
+                        icon = { Text(if (darkTheme) "☀️" else "🌙") },
+                        label = { Text(if (darkTheme) "Light" else "Dark") },
+                    )
                 }
 
-                Spacer(Modifier.height(24.dp))
-                Text("Recent Expenses (this month)", style = MaterialTheme.typography.titleMedium)
-                LazyColumn {
-                    items(expenses) { expense ->
-                        val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
-                        Text("${formatMoney(expense.amount)} · $categoryName · ${expense.note}".trimEnd(' ', '·'))
+                when (section) {
+                    Section.HOUSEHOLDS -> when (val screen = householdScreen) {
+                        Screen.List -> HouseholdsListScreen(
+                            api = api,
+                            onOpenHousehold = { householdScreen = Screen.Detail(it) },
+                        )
+                        is Screen.Detail -> HouseholdDetailScreen(
+                            api = api,
+                            householdId = screen.id,
+                            onBack = { householdScreen = Screen.List },
+                        )
+                    }
+
+                    Section.ACTIVITIES -> when (val screen = activityScreen) {
+                        Screen.List -> ActivitiesListScreen(
+                            api = api,
+                            onOpenTrip = { activityScreen = Screen.Detail(it) },
+                        )
+                        is Screen.Detail -> TripDetailScreen(
+                            api = api,
+                            tripId = screen.id,
+                            onBack = { activityScreen = Screen.List },
+                        )
                     }
                 }
             }
-        }
-
-        if (showAddExpense && categories.isNotEmpty() && household != null) {
-            val currency = weeks.firstOrNull()?.evaluation?.allocated?.currency ?: "INR"
-            AddExpenseDialog(
-                categories = categories,
-                currency = currency,
-                onDismiss = { showAddExpense = false },
-                onSubmit = { request ->
-                    scope.launch {
-                        api.recordExpense(request)
-                        showAddExpense = false
-                        reload()
-                    }
-                },
-            )
         }
     }
 }

@@ -19,8 +19,11 @@ import et.core.model.TripParticipant
  * to the local `OperationStore`.
  */
 interface Repository {
-    suspend fun household(): Household
-    suspend fun categories(): List<Category>
+    suspend fun households(): List<Household>
+    suspend fun household(householdId: String): Household?
+    suspend fun saveHousehold(household: Household)
+    suspend fun categories(householdId: String): List<Category>
+    suspend fun saveCategory(category: Category)
 
     suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget?
     suspend fun saveMonthlyBudget(budget: MonthlyBudget)

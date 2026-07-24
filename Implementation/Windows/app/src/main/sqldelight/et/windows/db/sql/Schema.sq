@@ -37,8 +37,11 @@ CREATE TABLE household (
 upsertHousehold:
 INSERT OR REPLACE INTO household (id, name, createdAt) VALUES (?, ?, ?);
 
-selectHousehold:
-SELECT * FROM household LIMIT 1;
+selectHouseholds:
+SELECT * FROM household ORDER BY createdAt;
+
+selectHouseholdById:
+SELECT * FROM household WHERE id = ?;
 
 CREATE TABLE category (
     id TEXT NOT NULL PRIMARY KEY,

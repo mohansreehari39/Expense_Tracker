@@ -65,16 +65,17 @@ compose.desktop {
             // cross-build a Windows package from Linux/WSL, so this must
             // be run on Windows itself. See Implementation/Windows/README.md.
             targetFormats(TargetFormat.Exe)
-            packageName = "ExpenseTracker"
+            packageName = "Kharcha"
             packageVersion = "0.1.0"
-            description = "Household and trip expense tracker — dashboard and server"
-            vendor = "Expense Tracker"
+            description = "Kharcha — household and trip expense tracker"
+            vendor = "Kharcha"
 
             windows {
                 menu = true
                 shortcut = true
                 dirChooser = true
                 perUserInstall = true
+                iconFile.set(project.file("icon.ico"))
                 // Stable across versions so a later installer upgrades this
                 // install in place (Add/Remove Programs) instead of creating
                 // a second entry. Generated once for this project — do not

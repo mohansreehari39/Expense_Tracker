@@ -1,15 +1,15 @@
 # Windows
 
-Source for the Windows desktop server/dashboard app: Ktor REST API, the
-JVM `Transport` implementation (JmDNS + sockets), the Compose Multiplatform
-Desktop UI, and the thin web dashboard view. Depends on the modules in
-[`Implementation/Core/`](../Core/README.md) via a Gradle composite build
-(`includeBuild("../Core")` in `settings.gradle.kts`), so Core stays
-independently buildable.
+Source for **Kharcha**'s Windows desktop server/dashboard app: Ktor REST
+API, the JVM `Transport` implementation (JmDNS + sockets), the Compose
+Multiplatform Desktop UI, and the thin web dashboard view. Depends on the
+modules in [`Implementation/Core/`](../Core/README.md) via a Gradle
+composite build (`includeBuild("../Core")` in `settings.gradle.kts`), so
+Core stays independently buildable.
 
 Design: [`Design/Windows/`](../../Design/Windows/00-README.md).
 
-## Status: v0 — vertical slice working end-to-end
+## Status: v0 — households + activities working end-to-end
 
 Run it:
 
@@ -17,45 +17,60 @@ Run it:
 ./gradlew :app:run
 ```
 
-This opens a Compose Desktop window and starts the Ktor API on
-`localhost:47321`. On first run it bootstraps a default household + five
-starter categories so the dashboard isn't empty.
+This opens a Compose Desktop window titled "Kharcha" and starts the Ktor
+API on `localhost:47321`. There's no seed data — create a household (or an
+activity) from the UI to get started.
 
 What works right now:
 - SQLDelight persistence (`app/src/main/sqldelight/et/windows/db/sql/Schema.sq`)
   — the same two-tier design as Design/Core: an `operationLog` table plus
   materialized entity tables. Every write also appends to the log so a
   later sync pass doesn't need a schema change.
-- REST API: `GET/POST /api/v1/household`, `/budgets/{year}/{month}`,
-  `/budgets`, `/expenses` — verified with curl end-to-end, including the
-  weekly budget math (proportional partial-week allocation) and the
-  OK/NEARING/OVER status from `core-domain`.
-- Compose Desktop UI: Household Dashboard (weekly budget status banner,
-  colored OK/NEARING/OVER per Design/Core/05-domain-logic.md) + an Add
-  Expense dialog, both talking only to the REST API, never the DB directly.
+- **Households** (`/api/v1/households/...`): create multiple households,
+  each with its own categories, monthly budget, and derived weekly
+  breakdown — verified end-to-end including partial-week proportional
+  allocation and the OK/NEARING/OVER status from `core-domain`.
+- **Activities** (`/api/v1/trips/...`, labeled "Activities" in the UI):
+  create a trip/event with participants and a budget, add expenses split
+  equally among participants, and see derived balances plus
+  `DebtSimplification`'s minimal settle-up suggestions — verified
+  end-to-end, including a 2-person debt resolving to the correct single
+  transfer.
+- Compose Desktop UI: a `NavigationRail` shell with **Households** and
+  **Activities** sections. Each list screen has a create dialog; each
+  detail screen has a budget-status card (red/amber/green, per
+  Design/Core/05-domain-logic.md) and its own **Add Expense** button
+  scoped to that household or activity — never a single global add button.
+- App identity: a generated wallet/coin icon (indigo → teal, matching the
+  UI theme) wired into both the runtime window and the installer, and an
+  indigo/teal Material3 theme (`Theme.kt`) instead of default colors.
+- Light/dark toggle in the navigation rail (sun/moon button) — choice is
+  remembered across launches in `~/.kharcha/theme.txt`
+  (`ThemePreference.kt`). Defaults to light on first run; no OS-preference
+  auto-detection yet.
 
 **Known gap:** rendering the Compose window could not be visually verified
 in the sandboxed environment this was built in — Skiko (Compose's renderer)
 threw `Cannot create Linux GL context` there, which looks like a
 sandbox/GPU-passthrough limitation rather than an app bug, since the app
 compiles cleanly and the exact same JVM process's Ktor server came up and
-served real, correct data over HTTP in that same run. Verify the window
-itself renders when running `./gradlew :app:run` on a real machine (WSLg
-with GPU passthrough, or native Windows/Linux) — if the same GL error shows
-up there, that's the next thing to debug.
+served real, correct data over HTTP in that same run, in every pass so far.
+If you hit the same GL error running `./gradlew :app:run` on your own
+machine, tell me and I'll dig into it.
 
 ## Building a setup.exe installer
 
 `app/build.gradle.kts` configures `compose.desktop.application.nativeDistributions`
-with `TargetFormat.Exe`. The resulting installer is **fully self-contained**
-— `jpackage` bundles a private, trimmed JRE (via `jlink`) into it, so the
-*installed* app needs no Java on the machine it's installed on. It behaves
-like any normal Windows installer: double-click, click through, get a Start
-Menu + Desktop shortcut and an "Add or Remove Programs" entry.
+with `TargetFormat.Exe`, using `app/icon.ico` as the installer/app icon.
+The resulting installer is **fully self-contained** — `jpackage` bundles a
+private, trimmed JRE (via `jlink`) into it, so the *installed* app needs no
+Java on the machine it's installed on. It behaves like any normal Windows
+installer: double-click, click through, get a Start Menu + Desktop
+shortcut and an "Add or Remove Programs" entry.
 
 The JDK/WiX prerequisites below are only needed on **the machine building
-the installer** — once you have `ExpenseTracker-0.1.0.exe`, it's portable;
-copy it anywhere and running it needs nothing else installed.
+the installer** — once you have `Kharcha-0.1.0.exe`, it's portable; copy
+it anywhere and running it needs nothing else installed.
 
 This build step **must run on Windows itself** — `jpackage` builds for
 whatever OS it's running on; it can't cross-build a Windows installer from
@@ -78,7 +93,7 @@ Then, from `Implementation/Windows` in PowerShell:
 .\gradlew.bat :app:packageExe
 ```
 
-The installer lands in `app\build\compose\binaries\main\exe\ExpenseTracker-0.1.0.exe`.
+The installer lands in `app\build\compose\binaries\main\exe\Kharcha-0.1.0.exe`.
 Double-clicking it installs the app (Start Menu shortcut + desktop shortcut,
 per-user, no admin rights needed per the `windows { }` block in
 `app/build.gradle.kts`) and launches a normal double-click desktop app from
@@ -86,17 +101,23 @@ then on — the Ktor server and Compose window both start together from
 `Main.kt`, same as `:app:run`.
 
 If you'd rather not install WiX yet, `.\gradlew.bat :app:createDistributable`
-produces a runnable folder (`app\build\compose\binaries\main\app\ExpenseTracker\`)
-with an `ExpenseTracker.exe` launcher inside — double-clickable, just not a
+produces a runnable folder (`app\build\compose\binaries\main\app\Kharcha\`)
+with a `Kharcha.exe` launcher inside — double-clickable, just not a
 proper installer.
 
 ## Not implemented yet (later passes)
 
-- Trips, analytics, devices/pairing screens, and their REST endpoints.
+- Analytics screen, devices/pairing screen, and their REST endpoints.
+- Trip expense splits are equal-only in the UI for now — `core-domain`'s
+  `SplitCalculator` already supports exact/percentage/weighted, just no
+  dialog for picking a mode yet.
+- Settling up: suggestions are computed and shown, but there's no button
+  yet to actually record a `Settlement` from a suggestion.
 - The JVM `Transport` (JmDNS + sockets) from
   [Design/Windows/02-transport-implementation.md](../../Design/Windows/02-transport-implementation.md)
   — nothing syncs with another device yet; this app only talks to itself.
 - System tray / start-on-login.
-- `%APPDATA%`-based config (currently just `~/.expense-tracker/`).
+- `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.
-- App icon (packaging currently uses the jpackage default).
+- OS dark-mode preference auto-detection (the manual toggle works; there's
+  just no "match system" default yet).

@@ -1,5 +1,8 @@
 package et.windows.server
 
+import et.core.domain.AddTripExpenseWithSplit
+import et.core.domain.CreateHousehold
+import et.core.domain.CreateTrip
 import et.core.domain.IdGenerator
 import et.core.domain.RecordHouseholdExpense
 import et.core.domain.Repository
@@ -13,6 +16,10 @@ class AppServices(
 ) {
     private val idGenerator = IdGenerator { UUID.randomUUID().toString() }
 
+    val createHousehold = CreateHousehold(repository, idGenerator)
     val recordHouseholdExpense = RecordHouseholdExpense(repository, idGenerator)
     val setMonthlyBudget = SetMonthlyBudget(repository, idGenerator)
+
+    val createTrip = CreateTrip(repository, idGenerator)
+    val addTripExpenseWithSplit = AddTripExpenseWithSplit(repository, idGenerator)
 }
