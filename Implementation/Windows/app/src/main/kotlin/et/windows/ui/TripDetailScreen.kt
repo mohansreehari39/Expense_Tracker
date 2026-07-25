@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,12 +28,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.AddTripExpenseRequest
 import et.windows.server.TripDetailResponse
+import et.windows.server.TripExpenseDto
 import kotlinx.coroutines.launch
 
 @Composable
 fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
     var detail by remember { mutableStateOf<TripDetailResponse?>(null) }
     var showAddExpense by remember { mutableStateOf(false) }
+    var expenseToEdit by remember { mutableStateOf<TripExpenseDto?>(null) }
+    var expenseToDelete by remember { mutableStateOf<TripExpenseDto?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -141,12 +145,16 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                         Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column {
-                                Text("Paid by $payerName")
+                                Text("Paid by $payerName · ${formatExpenseDate(expense.occurredAt)}")
                                 if (expense.note.isNotBlank()) {
                                     Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
-                            Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+                                TextButton(onClick = { expenseToEdit = expense }) { Text("Edit") }
+                                TextButton(onClick = { expenseToDelete = expense }) { Text("Delete") }
+                            }
                         }
                     }
                 }
@@ -159,7 +167,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
             participants = current.participants,
             currency = currency,
             onDismiss = { showAddExpense = false },
-            onSubmit = { amountMinorUnits, paidByParticipantId, note ->
+            onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
                 scope.launch {
                     api.addTripExpense(
                         tripId,
@@ -167,11 +175,55 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                             amountMinorUnits = amountMinorUnits,
                             currency = currency,
                             paidByParticipantId = paidByParticipantId,
-                            occurredAt = System.currentTimeMillis(),
+                            occurredAt = occurredAt,
                             note = note,
                         ),
                     )
                     showAddExpense = false
+                    reload()
+                }
+            },
+        )
+    }
+
+    if (current != null) {
+        expenseToEdit?.let { expense ->
+            AddTripExpenseDialog(
+                participants = current.participants,
+                currency = currency,
+                expenseToEdit = expense,
+                onDismiss = { expenseToEdit = null },
+                onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
+                    scope.launch {
+                        api.updateTripExpense(
+                            tripId,
+                            expense.id,
+                            AddTripExpenseRequest(
+                                amountMinorUnits = amountMinorUnits,
+                                currency = currency,
+                                paidByParticipantId = paidByParticipantId,
+                                occurredAt = occurredAt,
+                                note = note,
+                            ),
+                        )
+                        expenseToEdit = null
+                        reload()
+                    }
+                },
+            )
+        }
+    }
+
+    expenseToDelete?.let { expense ->
+        ConfirmDialog(
+            title = "Delete expense?",
+            message = "This removes the ${formatMoney(expense.amount)} expense and can't be undone.",
+            confirmLabel = "Delete",
+            onDismiss = { expenseToDelete = null },
+            onConfirm = {
+                scope.launch {
+                    api.deleteTripExpense(tripId, expense.id)
+                    expenseToDelete = null
                     reload()
                 }
             },

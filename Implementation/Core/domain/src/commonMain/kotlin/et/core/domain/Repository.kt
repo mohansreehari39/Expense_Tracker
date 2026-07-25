@@ -35,7 +35,10 @@ interface Repository {
     suspend fun saveMonthlyBudget(budget: MonthlyBudget)
 
     suspend fun householdExpensesBetween(householdId: String, fromInclusive: Long, toExclusive: Long): List<HouseholdExpense>
+    suspend fun householdExpenseById(expenseId: String): HouseholdExpense?
     suspend fun saveHouseholdExpense(expense: HouseholdExpense)
+    suspend fun updateHouseholdExpense(expense: HouseholdExpense)
+    suspend fun deleteHouseholdExpense(expenseId: String)
 
     suspend fun trips(): List<Trip>
     suspend fun trip(tripId: String): Trip?
@@ -45,8 +48,11 @@ interface Repository {
     suspend fun saveTripParticipant(participant: TripParticipant)
 
     suspend fun tripExpenses(tripId: String): List<TripExpense>
+    suspend fun tripExpenseById(expenseId: String): TripExpense?
     suspend fun expenseSplits(tripExpenseId: String): List<ExpenseSplit>
     suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>)
+    suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>)
+    suspend fun deleteTripExpenseWithSplits(expenseId: String)
 
     suspend fun settlements(tripId: String): List<Settlement>
     suspend fun saveSettlement(settlement: Settlement)

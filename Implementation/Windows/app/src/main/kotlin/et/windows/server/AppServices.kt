@@ -6,6 +6,8 @@ import et.core.domain.AddTripExpenseWithSplit
 import et.core.domain.ArchiveCategory
 import et.core.domain.CreateHousehold
 import et.core.domain.CreateTrip
+import et.core.domain.EditHouseholdExpense
+import et.core.domain.EditTripExpenseWithSplit
 import et.core.domain.IdGenerator
 import et.core.domain.RecordHouseholdExpense
 import et.core.domain.Repository
@@ -21,6 +23,7 @@ class AppServices(
 
     val createHousehold = CreateHousehold(repository, idGenerator)
     val recordHouseholdExpense = RecordHouseholdExpense(repository, idGenerator)
+    val editHouseholdExpense = EditHouseholdExpense(repository)
     val setMonthlyBudget = SetMonthlyBudget(repository, idGenerator)
     val addCategory = AddCategory(repository, idGenerator)
     val archiveCategory = ArchiveCategory(repository)
@@ -28,4 +31,5 @@ class AppServices(
 
     val createTrip = CreateTrip(repository, idGenerator)
     val addTripExpenseWithSplit = AddTripExpenseWithSplit(repository, idGenerator)
+    val editTripExpenseWithSplit = EditTripExpenseWithSplit(repository, idGenerator)
 }

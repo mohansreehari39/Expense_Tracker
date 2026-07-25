@@ -134,20 +134,24 @@ class SqlDelightRepository(
         toExclusive: Long,
     ): List<HouseholdExpense> = withContext(Dispatchers.IO) {
         db.schemaQueries.selectHouseholdExpensesBetween(householdId, fromInclusive, toExclusive).executeAsList()
-            .map {
-                HouseholdExpense(
-                    id = it.id,
-                    householdId = it.householdId,
-                    categoryId = it.categoryId,
-                    amount = Money(it.amountMinorUnits, it.currency),
-                    paidByMemberId = it.paidByMemberId,
-                    occurredAt = it.occurredAt,
-                    note = it.note,
-                    createdByDeviceId = it.createdByDeviceId,
-                    createdAt = it.createdAt,
-                )
-            }
+            .map(::toHouseholdExpense)
     }
+
+    override suspend fun householdExpenseById(expenseId: String): HouseholdExpense? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholdExpenseById(expenseId).executeAsOneOrNull()?.let(::toHouseholdExpense)
+    }
+
+    private fun toHouseholdExpense(row: et.windows.db.sql.HouseholdExpense) = HouseholdExpense(
+        id = row.id,
+        householdId = row.householdId,
+        categoryId = row.categoryId,
+        amount = Money(row.amountMinorUnits, row.currency),
+        paidByMemberId = row.paidByMemberId,
+        occurredAt = row.occurredAt,
+        note = row.note,
+        createdByDeviceId = row.createdByDeviceId,
+        createdAt = row.createdAt,
+    )
 
     override suspend fun saveHouseholdExpense(expense: HouseholdExpense): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.insertHouseholdExpense(
@@ -172,6 +176,34 @@ class SqlDelightRepository(
                 "occurredAt" to JsonPrimitive(expense.occurredAt),
             ),
         )
+    }
+
+    override suspend fun updateHouseholdExpense(expense: HouseholdExpense): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.updateHouseholdExpense(
+            categoryId = expense.categoryId,
+            amountMinorUnits = expense.amount.minorUnits,
+            currency = expense.amount.currency,
+            paidByMemberId = expense.paidByMemberId,
+            occurredAt = expense.occurredAt,
+            note = expense.note,
+            id = expense.id,
+        )
+        logOp(
+            EntityType.HOUSEHOLD_EXPENSE,
+            expense.id,
+            mapOf(
+                "amountMinorUnits" to JsonPrimitive(expense.amount.minorUnits),
+                "currency" to JsonPrimitive(expense.amount.currency),
+                "categoryId" to JsonPrimitive(expense.categoryId),
+                "occurredAt" to JsonPrimitive(expense.occurredAt),
+            ),
+            opType = OpType.UPDATE,
+        )
+    }
+
+    override suspend fun deleteHouseholdExpense(expenseId: String): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.deleteHouseholdExpense(expenseId)
+        logOp(EntityType.HOUSEHOLD_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)
     }
 
     override suspend fun trips(): List<Trip> = withContext(Dispatchers.IO) {
@@ -213,18 +245,22 @@ class SqlDelightRepository(
     }
 
     override suspend fun tripExpenses(tripId: String): List<TripExpense> = withContext(Dispatchers.IO) {
-        db.schemaQueries.selectTripExpenses(tripId).executeAsList().map {
-            TripExpense(
-                id = it.id,
-                tripId = it.tripId,
-                categoryId = it.categoryId,
-                amount = Money(it.amountMinorUnits, it.currency),
-                paidByParticipantId = it.paidByParticipantId,
-                occurredAt = it.occurredAt,
-                note = it.note,
-            )
-        }
+        db.schemaQueries.selectTripExpenses(tripId).executeAsList().map(::toTripExpense)
     }
+
+    override suspend fun tripExpenseById(expenseId: String): TripExpense? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectTripExpenseById(expenseId).executeAsOneOrNull()?.let(::toTripExpense)
+    }
+
+    private fun toTripExpense(row: et.windows.db.sql.TripExpense) = TripExpense(
+        id = row.id,
+        tripId = row.tripId,
+        categoryId = row.categoryId,
+        amount = Money(row.amountMinorUnits, row.currency),
+        paidByParticipantId = row.paidByParticipantId,
+        occurredAt = row.occurredAt,
+        note = row.note,
+    )
 
     override suspend fun expenseSplits(tripExpenseId: String): List<ExpenseSplit> = withContext(Dispatchers.IO) {
         db.schemaQueries.selectExpenseSplits(tripExpenseId).executeAsList().map {
@@ -261,6 +297,45 @@ class SqlDelightRepository(
                 mapOf("amountMinorUnits" to JsonPrimitive(expense.amount.minorUnits)),
             )
         }
+
+    override suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>): Unit =
+        withContext(Dispatchers.IO) {
+            db.transaction {
+                db.schemaQueries.updateTripExpense(
+                    categoryId = expense.categoryId,
+                    amountMinorUnits = expense.amount.minorUnits,
+                    currency = expense.amount.currency,
+                    paidByParticipantId = expense.paidByParticipantId,
+                    occurredAt = expense.occurredAt,
+                    note = expense.note,
+                    id = expense.id,
+                )
+                db.schemaQueries.deleteExpenseSplitsForExpense(expense.id)
+                for (split in splits) {
+                    db.schemaQueries.insertExpenseSplit(
+                        split.id,
+                        split.tripExpenseId,
+                        split.participantId,
+                        split.shareAmount.minorUnits,
+                        split.shareAmount.currency,
+                    )
+                }
+            }
+            logOp(
+                EntityType.TRIP_EXPENSE,
+                expense.id,
+                mapOf("amountMinorUnits" to JsonPrimitive(expense.amount.minorUnits)),
+                opType = OpType.UPDATE,
+            )
+        }
+
+    override suspend fun deleteTripExpenseWithSplits(expenseId: String): Unit = withContext(Dispatchers.IO) {
+        db.transaction {
+            db.schemaQueries.deleteExpenseSplitsForExpense(expenseId)
+            db.schemaQueries.deleteTripExpense(expenseId)
+        }
+        logOp(EntityType.TRIP_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)
+    }
 
     override suspend fun settlements(tripId: String): List<Settlement> = withContext(Dispatchers.IO) {
         db.schemaQueries.selectSettlements(tripId).executeAsList().map {
@@ -312,14 +387,19 @@ class SqlDelightRepository(
         row.isClosed == 1L,
     )
 
-    private suspend fun logOp(entityType: EntityType, entityId: String, fields: Map<String, kotlinx.serialization.json.JsonElement>) {
+    private suspend fun logOp(
+        entityType: EntityType,
+        entityId: String,
+        fields: Map<String, kotlinx.serialization.json.JsonElement>,
+        opType: OpType = OpType.CREATE,
+    ) {
         operationStore.append(
             listOf(
                 Operation(
                     opId = java.util.UUID.randomUUID().toString(),
                     entityType = entityType,
                     entityId = entityId,
-                    opType = OpType.CREATE,
+                    opType = opType,
                     patch = fields,
                     authorDeviceId = deviceId,
                     hlc = clock.tick(),

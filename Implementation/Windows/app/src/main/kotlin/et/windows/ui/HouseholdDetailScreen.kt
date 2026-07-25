@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +45,8 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
     var monthBudget by remember { mutableStateOf<MonthBudgetResponse?>(null) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
+    var expenseToEdit by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
+    var expenseToDelete by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
     var showMonthlyOverride by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -144,12 +147,16 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                     Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
                             Text(categoryName, style = MaterialTheme.typography.bodyLarge)
-                            Text("Paid by $paidByName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Paid by $paidByName · ${formatExpenseDate(expense.occurredAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (expense.note.isNotBlank()) {
                                 Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+                            TextButton(onClick = { expenseToEdit = expense }) { Text("Edit") }
+                            TextButton(onClick = { expenseToDelete = expense }) { Text("Delete") }
+                        }
                     }
                 }
             }
@@ -167,6 +174,40 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                 scope.launch {
                     api.recordExpense(householdId, request)
                     showAddExpense = false
+                    reload()
+                }
+            },
+        )
+    }
+
+    expenseToEdit?.let { expense ->
+        AddExpenseDialog(
+            categories = categories,
+            members = members,
+            currency = currency,
+            expenseToEdit = expense,
+            onDismiss = { expenseToEdit = null },
+            onCreateCategory = { name -> api.addCategory(householdId, name) },
+            onSubmit = { request ->
+                scope.launch {
+                    api.updateExpense(householdId, expense.id, request)
+                    expenseToEdit = null
+                    reload()
+                }
+            },
+        )
+    }
+
+    expenseToDelete?.let { expense ->
+        ConfirmDialog(
+            title = "Delete expense?",
+            message = "This removes the ${formatMoney(expense.amount)} expense and can't be undone.",
+            confirmLabel = "Delete",
+            onDismiss = { expenseToDelete = null },
+            onConfirm = {
+                scope.launch {
+                    api.deleteExpense(householdId, expense.id)
+                    expenseToDelete = null
                     reload()
                 }
             },
