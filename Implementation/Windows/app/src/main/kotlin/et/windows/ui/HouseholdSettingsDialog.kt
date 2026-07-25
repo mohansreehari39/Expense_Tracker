@@ -136,7 +136,7 @@ fun HouseholdSettingsDialog(
         AddPersonDialog(
             title = "Add Member",
             fieldLabel = "Member name",
-            qrPayload = encodeJoinInvite(JoinInvitePayload(kind = "household", id = householdId, name = currentName)),
+            qrPayload = encodeJoinInvite(joinInviteForHousehold(householdId, currentName)),
             onDismiss = { showAddMember = false },
             onAdd = { memberName ->
                 api.addMember(householdId, memberName)

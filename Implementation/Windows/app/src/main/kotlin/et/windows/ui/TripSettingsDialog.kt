@@ -119,7 +119,7 @@ fun TripSettingsDialog(
         AddPersonDialog(
             title = "Add Participant",
             fieldLabel = "Participant name",
-            qrPayload = encodeJoinInvite(JoinInvitePayload(kind = "activity", id = tripId, name = currentName)),
+            qrPayload = encodeJoinInvite(joinInviteForTrip(tripId, currentName)),
             onDismiss = { showAddParticipant = false },
             onAdd = { participantName ->
                 api.addTripParticipant(tripId, participantName)

@@ -1,0 +1,154 @@
+package et.android.kharcha.data
+
+import kotlinx.serialization.Serializable
+
+/**
+ * Mirrors the wire shapes in
+ * Implementation/Windows/app/.../server/Dto.kt field-for-field — this app
+ * is a standalone REST client (see Implementation/Android/README.md for
+ * why), not a shared-module consumer, so these are intentionally a
+ * separate set of classes kept in sync by hand rather than imported.
+ */
+@Serializable
+data class MoneyDto(val minorUnits: Long, val currency: String)
+
+@Serializable
+data class BudgetEvaluationDto(
+    val status: String,
+    val allocated: MoneyDto,
+    val spent: MoneyDto,
+    val remainingOrOver: MoneyDto,
+)
+
+// -- Households -------------------------------------------------------------
+
+@Serializable
+data class HouseholdDto(
+    val id: String,
+    val name: String,
+    val defaultMonthlyBudget: MoneyDto? = null,
+    val monthEvaluation: BudgetEvaluationDto? = null,
+)
+
+@Serializable
+data class CategoryDto(val id: String, val name: String, val icon: String)
+
+@Serializable
+data class MemberDto(val id: String, val displayName: String)
+
+@Serializable
+data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>, val members: List<MemberDto>)
+
+@Serializable
+data class CreateHouseholdRequest(val name: String)
+
+@Serializable
+data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null)
+
+@Serializable
+data class AddCategoryRequest(val name: String)
+
+@Serializable
+data class AddMemberRequest(val displayName: String)
+
+@Serializable
+data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
+
+@Serializable
+data class MonthBudgetResponse(
+    val year: Int,
+    val month: Int,
+    val effectiveBudget: MoneyDto?,
+    val isOverride: Boolean,
+    val defaultBudget: MoneyDto?,
+    val monthlyEvaluation: BudgetEvaluationDto?,
+    val weeks: List<WeekEvaluationDto>,
+)
+
+@Serializable
+data class SetBudgetRequest(val year: Int, val month: Int, val totalAmountMinorUnits: Long, val currency: String)
+
+@Serializable
+data class HouseholdExpenseDto(
+    val id: String,
+    val categoryId: String,
+    val amount: MoneyDto,
+    val paidByMemberId: String,
+    val occurredAt: Long,
+    val note: String,
+)
+
+@Serializable
+data class RecordExpenseRequest(
+    val categoryId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+    val paidByMemberId: String,
+    val occurredAt: Long,
+    val note: String = "",
+)
+
+@Serializable
+data class RecordExpenseResponse(val expense: HouseholdExpenseDto, val weekEvaluation: BudgetEvaluationDto)
+
+// -- Trips / Activities ------------------------------------------------------
+
+@Serializable
+data class TripDto(
+    val id: String,
+    val name: String,
+    val startDate: Long,
+    val endDate: Long?,
+    val budget: MoneyDto,
+    val isClosed: Boolean,
+    val evaluation: BudgetEvaluationDto? = null,
+)
+
+@Serializable
+data class TripParticipantDto(val id: String, val displayName: String)
+
+@Serializable
+data class AddTripParticipantRequest(val displayName: String)
+
+@Serializable
+data class TripExpenseDto(
+    val id: String,
+    val amount: MoneyDto,
+    val paidByParticipantId: String,
+    val occurredAt: Long,
+    val note: String,
+)
+
+@Serializable
+data class SuggestedTransferDto(val fromParticipantId: String, val toParticipantId: String, val amount: MoneyDto)
+
+@Serializable
+data class TripDetailResponse(
+    val trip: TripDto,
+    val participants: List<TripParticipantDto>,
+    val expenses: List<TripExpenseDto>,
+    val balances: Map<String, MoneyDto>,
+    val suggestedSettlements: List<SuggestedTransferDto>,
+)
+
+@Serializable
+data class CreateTripRequest(
+    val name: String,
+    val startDate: Long,
+    val endDate: Long? = null,
+    val budgetAmountMinorUnits: Long,
+    val currency: String,
+    val participantNames: List<String>,
+)
+
+@Serializable
+data class UpdateTripRequest(val name: String, val budgetAmountMinorUnits: Long, val currency: String)
+
+@Serializable
+data class AddTripExpenseRequest(
+    val amountMinorUnits: Long,
+    val currency: String,
+    val paidByParticipantId: String,
+    val occurredAt: Long,
+    val note: String = "",
+)
