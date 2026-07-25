@@ -5,6 +5,7 @@ import et.core.model.Device
 import et.core.model.ExpenseSplit
 import et.core.model.Household
 import et.core.model.HouseholdExpense
+import et.core.model.Member
 import et.core.model.MonthlyBudget
 import et.core.model.Settlement
 import et.core.model.Trip
@@ -26,6 +27,9 @@ interface Repository {
     /** Unlike [categories], includes archived ones — needed to look one up before re-saving it. */
     suspend fun categoryById(categoryId: String): Category?
     suspend fun saveCategory(category: Category)
+
+    suspend fun members(householdId: String): List<Member>
+    suspend fun saveMember(member: Member)
 
     suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget?
     suspend fun saveMonthlyBudget(budget: MonthlyBudget)

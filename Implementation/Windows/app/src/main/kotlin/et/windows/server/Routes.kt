@@ -47,6 +47,22 @@ private suspend fun currentWeekEvaluation(services: AppServices, householdId: St
     return evaluateBudget(allocated, spent)
 }
 
+/**
+ * Same scope as the monthly evaluation shown when a household is opened —
+ * used for the sidebar status dot so it never disagrees with what the
+ * household screen shows a click later (a household can be over for the
+ * current week alone while still on track for the month).
+ */
+private suspend fun currentMonthEvaluation(services: AppServices, householdId: String): et.core.domain.BudgetEvaluation? {
+    val t = today()
+    val amount = effectiveBudget(services, householdId, t.year, t.monthNumber).amount ?: return null
+    val monthRange = WeeklyBudget.monthRange(t.year, t.monthNumber)
+    val spent = services.repository
+        .householdExpensesBetween(householdId, monthRange.start.startOfDayMillis(), monthRange.endInclusive.exclusiveEndMillis())
+        .fold(Money(0, amount.currency)) { acc, e -> acc + e.amount }
+    return evaluateBudget(amount, spent)
+}
+
 private suspend fun tripEvaluation(services: AppServices, tripId: String, budget: Money): et.core.domain.BudgetEvaluation {
     val spent = services.repository.tripExpenses(tripId).fold(Money(0, budget.currency)) { acc, e -> acc + e.amount }
     return evaluateBudget(budget, spent)
@@ -63,7 +79,7 @@ private fun Route.households(services: AppServices) {
     route("/households") {
         get {
             val households = services.repository.households().map {
-                it.toDto(currentWeekEvaluation(services, it.id)?.toDto())
+                it.toDto(currentMonthEvaluation(services, it.id)?.toDto())
             }
             call.respond(households)
         }
@@ -80,7 +96,8 @@ private fun Route.households(services: AppServices) {
                 val household = services.repository.household(householdId)
                     ?: return@get call.respond(HttpStatusCode.NotFound)
                 val categories = services.repository.categories(householdId)
-                call.respond(HouseholdResponse(household.toDto(), categories.map { it.toDto() }))
+                val members = services.repository.members(householdId)
+                call.respond(HouseholdResponse(household.toDto(), categories.map { it.toDto() }, members.map { it.toDto() }))
             }
 
             put {
@@ -113,6 +130,19 @@ private fun Route.households(services: AppServices) {
                     val archived = services.archiveCategory(categoryId)
                         ?: return@delete call.respond(HttpStatusCode.NotFound)
                     call.respond(archived.toDto())
+                }
+            }
+
+            route("/members") {
+                post {
+                    val householdId = call.parameters["householdId"]!!
+                    val request = call.receive<AddMemberRequest>()
+                    val member = try {
+                        services.addMember(householdId, request.displayName)
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid member name")))
+                    }
+                    call.respond(HttpStatusCode.Created, member.toDto())
                 }
             }
 

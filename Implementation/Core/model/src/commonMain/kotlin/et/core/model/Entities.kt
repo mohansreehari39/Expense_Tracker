@@ -19,11 +19,16 @@ data class Household(
     val defaultMonthlyBudget: Money? = null,
 )
 
+/**
+ * [deviceId] is null until the member joins via the (not-yet-built) QR
+ * device-pairing flow — until then a member is just a name a household
+ * expense can be attributed to.
+ */
 data class Member(
     val id: String,
     val householdId: String,
     val displayName: String,
-    val deviceId: String,
+    val deviceId: String? = null,
 )
 
 data class Category(

@@ -21,19 +21,22 @@ CATS_JSON=$(curl -s $BASE/households/$H1)
 cat_id() { echo "$CATS_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(c['id'] for c in d['categories'] if c['name']=='$1'))"; }
 GROCERIES=$(cat_id Groceries); UTILITIES=$(cat_id Utilities); RENT=$(cat_id Rent); EATING=$(cat_id "Eating Out"); OTHER=$(cat_id Other)
 
+add_member() { curl -s -X POST $BASE/households/$H1/members -H "Content-Type: application/json" -d "{\"displayName\":\"$1\"}" | json_get "['id']"; }
+ROHAN=$(add_member Rohan); SNEHA=$(add_member Sneha)
+
 add_expense() {
   curl -s -X POST $BASE/households/$H1/expenses -H "Content-Type: application/json" \
-    -d "{\"categoryId\":\"$1\",\"amountMinorUnits\":$2,\"currency\":\"INR\",\"paidByMemberId\":\"local\",\"occurredAt\":$(days_ago $3),\"note\":\"$4\"}" > /dev/null
+    -d "{\"categoryId\":\"$1\",\"amountMinorUnits\":$2,\"currency\":\"INR\",\"paidByMemberId\":\"$3\",\"occurredAt\":$(days_ago $4),\"note\":\"$5\"}" > /dev/null
 }
-add_expense $RENT 1500000 20 "July rent"
-add_expense $GROCERIES 180000 12 "Big Bazaar run"
-add_expense $EATING 95000 6 "Family dinner"
-add_expense $UTILITIES 250000 5 "Electricity bill"
-add_expense $GROCERIES 320000 3 "Weekly groceries"
-add_expense $OTHER 60000 2 "Household supplies"
-add_expense $EATING 310000 1 "Weekend takeout"
-add_expense $GROCERIES 280000 0 "Fresh produce"
-echo "Sharma Family: household=$H1, budget=45000 INR"
+add_expense $RENT 1500000 $ROHAN 20 "July rent"
+add_expense $GROCERIES 180000 $SNEHA 12 "Big Bazaar run"
+add_expense $EATING 95000 $ROHAN 6 "Family dinner"
+add_expense $UTILITIES 250000 $ROHAN 5 "Electricity bill"
+add_expense $GROCERIES 320000 $SNEHA 3 "Weekly groceries"
+add_expense $OTHER 60000 $SNEHA 2 "Household supplies"
+add_expense $EATING 310000 $ROHAN 1 "Weekend takeout"
+add_expense $GROCERIES 280000 $SNEHA 0 "Fresh produce"
+echo "Sharma Family: household=$H1, budget=45000 INR, members=Rohan,Sneha"
 
 echo "== Household 2: Roommates =="
 H2=$(curl -s -X POST $BASE/households -H "Content-Type: application/json" -d '{"name":"Roommates"}' | json_get "['id']")
@@ -42,11 +45,13 @@ curl -s -X POST $BASE/households/$H2/budgets -H "Content-Type: application/json"
 CATS2_JSON=$(curl -s $BASE/households/$H2)
 cat_id2() { echo "$CATS2_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(c['id'] for c in d['categories'] if c['name']=='$1'))"; }
 U2=$(cat_id2 Utilities); G2=$(cat_id2 Groceries)
+add_member2() { curl -s -X POST $BASE/households/$H2/members -H "Content-Type: application/json" -d "{\"displayName\":\"$1\"}" | json_get "['id']"; }
+ALEX=$(add_member2 Alex); JORDAN=$(add_member2 Jordan)
 curl -s -X POST $BASE/households/$H2/expenses -H "Content-Type: application/json" \
-  -d "{\"categoryId\":\"$U2\",\"amountMinorUnits\":150000,\"currency\":\"INR\",\"paidByMemberId\":\"local\",\"occurredAt\":$(days_ago 2),\"note\":\"Wifi bill\"}" > /dev/null
+  -d "{\"categoryId\":\"$U2\",\"amountMinorUnits\":150000,\"currency\":\"INR\",\"paidByMemberId\":\"$ALEX\",\"occurredAt\":$(days_ago 2),\"note\":\"Wifi bill\"}" > /dev/null
 curl -s -X POST $BASE/households/$H2/expenses -H "Content-Type: application/json" \
-  -d "{\"categoryId\":\"$G2\",\"amountMinorUnits\":90000,\"currency\":\"INR\",\"paidByMemberId\":\"local\",\"occurredAt\":$(days_ago 5),\"note\":\"Shared snacks\"}" > /dev/null
-echo "Roommates: household=$H2, budget=20000 INR"
+  -d "{\"categoryId\":\"$G2\",\"amountMinorUnits\":90000,\"currency\":\"INR\",\"paidByMemberId\":\"$JORDAN\",\"occurredAt\":$(days_ago 5),\"note\":\"Shared snacks\"}" > /dev/null
+echo "Roommates: household=$H2, budget=20000 INR, members=Alex,Jordan"
 
 echo "== Activity 1: Goa Trip =="
 T1=$(curl -s -X POST $BASE/trips -H "Content-Type: application/json" \
