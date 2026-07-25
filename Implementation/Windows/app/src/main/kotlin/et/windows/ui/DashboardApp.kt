@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
+import java.awt.Rectangle
+import java.awt.Toolkit
 
 /** Slack-style shell: a persistent sidebar (Household/Activities) and a main content pane. */
 @Composable
@@ -36,6 +39,23 @@ fun FrameWindowScope.DashboardApp(
     var darkTheme by remember { mutableStateOf(ThemePreference.load() ?: SystemTheme.isDark() ?: false) }
     var selection by remember { mutableStateOf<Selection>(Selection.None) }
     var refreshSignal by remember { mutableStateOf(0) }
+
+    // Undecorated windows don't automatically respect the taskbar's work
+    // area when maximized on Windows — that's normally handled by the
+    // native title bar we opted out of. Telling AWT explicitly what
+    // "maximized" means fixes it; otherwise the window covers the
+    // taskbar. Single-primary-monitor assumption: if the window is moved
+    // to another display before maximizing, these bounds won't match it.
+    LaunchedEffect(Unit) {
+        val screenBounds = window.graphicsConfiguration.bounds
+        val insets = Toolkit.getDefaultToolkit().getScreenInsets(window.graphicsConfiguration)
+        window.maximizedBounds = Rectangle(
+            screenBounds.x + insets.left,
+            screenBounds.y + insets.top,
+            screenBounds.width - insets.left - insets.right,
+            screenBounds.height - insets.top - insets.bottom,
+        )
+    }
 
     KharchaTheme(darkTheme = darkTheme) {
         Surface(modifier = Modifier.fillMaxSize()) {
