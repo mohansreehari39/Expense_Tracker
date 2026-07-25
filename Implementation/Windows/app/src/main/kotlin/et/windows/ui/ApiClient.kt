@@ -1,6 +1,8 @@
 package et.windows.ui
 
+import et.windows.server.AddCategoryRequest
 import et.windows.server.AddTripExpenseRequest
+import et.windows.server.CategoryDto
 import et.windows.server.CreateHouseholdRequest
 import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
@@ -19,6 +21,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.put
@@ -52,6 +55,16 @@ class ApiClient(private val baseUrl: String) {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
+
+    suspend fun addCategory(householdId: String, name: String): CategoryDto =
+        client.post("$baseUrl/api/v1/households/$householdId/categories") {
+            contentType(ContentType.Application.Json)
+            setBody(AddCategoryRequest(name))
+        }.body()
+
+    suspend fun archiveCategory(householdId: String, categoryId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/categories/$categoryId")
+    }
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()

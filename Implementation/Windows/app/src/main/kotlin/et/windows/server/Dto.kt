@@ -51,6 +51,9 @@ fun Category.toDto() = CategoryDto(id, name, icon)
 data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>)
 
 @Serializable
+data class AddCategoryRequest(val name: String)
+
+@Serializable
 data class CreateHouseholdRequest(val name: String)
 
 @Serializable

@@ -175,6 +175,8 @@ fun Sidebar(
 
     when (val target = settingsTarget) {
         is SettingsTarget.HouseholdTarget -> HouseholdSettingsDialog(
+            api = api,
+            householdId = target.id,
             currentName = target.name,
             currentDefaultBudget = target.defaultBudget,
             onDismiss = { settingsTarget = null },

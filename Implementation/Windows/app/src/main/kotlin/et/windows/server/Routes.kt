@@ -13,6 +13,7 @@ import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
@@ -93,6 +94,26 @@ private fun Route.households(services: AppServices) {
                 )
                 services.repository.saveHousehold(updated)
                 call.respond(updated.toDto())
+            }
+
+            route("/categories") {
+                post {
+                    val householdId = call.parameters["householdId"]!!
+                    val request = call.receive<AddCategoryRequest>()
+                    val category = try {
+                        services.addCategory(householdId, request.name)
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid category name")))
+                    }
+                    call.respond(HttpStatusCode.Created, category.toDto())
+                }
+
+                delete("/{categoryId}") {
+                    val categoryId = call.parameters["categoryId"]!!
+                    val archived = services.archiveCategory(categoryId)
+                        ?: return@delete call.respond(HttpStatusCode.NotFound)
+                    call.respond(archived.toDto())
+                }
             }
 
             route("/budgets") {

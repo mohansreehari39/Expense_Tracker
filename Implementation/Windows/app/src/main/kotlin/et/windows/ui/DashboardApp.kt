@@ -10,6 +10,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,8 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
-import java.awt.Rectangle
-import java.awt.Toolkit
+import kotlinx.coroutines.delay
+
+/** How often the sidebar + whichever detail screen is open re-fetch from the server. */
+private const val AUTO_REFRESH_INTERVAL_MS = 4000L
 
 /** Slack-style shell: a persistent sidebar (Household/Activities) and a main content pane. */
 @Composable
@@ -31,13 +34,25 @@ fun FrameWindowScope.DashboardApp(
     icon: Painter,
     windowState: WindowState,
     onMinimize: () -> Unit,
-    onToggleMaximize: () -> Unit,
     onClose: () -> Unit,
 ) {
     // Explicit toggle choice wins; otherwise follow the OS theme; otherwise light.
     var darkTheme by remember { mutableStateOf(ThemePreference.load() ?: SystemTheme.isDark() ?: false) }
     var selection by remember { mutableStateOf<Selection>(Selection.None) }
     var refreshSignal by remember { mutableStateOf(0) }
+
+    // The app has no push mechanism yet (Design/Windows/03-rest-api.md's
+    // /ws/changes is aspirational, not implemented) — data written by
+    // anything other than this window's own actions (e.g. the seed-data
+    // scripts, or a future second device) wouldn't otherwise show up until
+    // the next manual action forced a reload. Cheap enough locally that
+    // polling is fine until real push exists.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(AUTO_REFRESH_INTERVAL_MS)
+            refreshSignal++
+        }
+    }
 
     // Undecorated windows don't automatically respect the taskbar's work
     // area when maximized on Windows — that's normally handled by the
@@ -48,15 +63,12 @@ fun FrameWindowScope.DashboardApp(
     // window is *currently* on — so dragging to a different monitor
     // (different taskbar position/size) before maximizing still works.
     fun handleToggleMaximize() {
-        val screenBounds = window.graphicsConfiguration.bounds
-        val insets = Toolkit.getDefaultToolkit().getScreenInsets(window.graphicsConfiguration)
-        window.maximizedBounds = Rectangle(
-            screenBounds.x + insets.left,
-            screenBounds.y + insets.top,
-            screenBounds.width - insets.left - insets.right,
-            screenBounds.height - insets.top - insets.bottom,
-        )
-        onToggleMaximize()
+        if (windowState.placement == WindowPlacement.Maximized) {
+            windowState.placement = WindowPlacement.Floating
+        } else {
+            window.maximizedBounds = usableScreenBounds(window.graphicsConfiguration)
+            windowState.placement = WindowPlacement.Maximized
+        }
     }
 
     KharchaTheme(darkTheme = darkTheme) {
@@ -64,7 +76,7 @@ fun FrameWindowScope.DashboardApp(
             Column(Modifier.fillMaxSize()) {
                 WindowTitleBar(
                     icon = icon,
-                    isMaximized = windowState.placement == WindowPlacement.Maximized,
+                    windowState = windowState,
                     onMinimize = onMinimize,
                     onToggleMaximize = ::handleToggleMaximize,
                     onClose = onClose,

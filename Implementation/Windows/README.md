@@ -48,6 +48,20 @@ What works right now:
   — the same two-tier design as Design/Core: an `operationLog` table plus
   materialized entity tables. Every write also appends to the log so a
   later sync pass doesn't need a schema change.
+- **Categories** are mutable per household, not a fixed list: the Add
+  Expense dialog's category field (`CategoryPicker.kt`) is a searchable
+  create-or-select dropdown — typing filters existing categories, and a
+  name with no case-insensitive match offers "+ Create". Actual dedup
+  safety is server-side (`core-domain`'s `AddCategory` reuses an existing
+  category if the trimmed, case-insensitive name already matches — so
+  "Eating out" reuses "Eating Out" instead of creating a near-duplicate;
+  verified via curl). Categories can be removed (soft-deleted via
+  `ArchiveCategory`, so existing expenses referencing one by id stay
+  intact) from the household's Settings popup.
+- The sidebar and whichever detail screen is open **auto-refresh** every
+  4 seconds (`DashboardApp.kt`), so data written by something other than
+  this window's own actions — e.g. the `Test/Windows/seed-data` scripts —
+  shows up on its own instead of only after the next manual reload.
 - **Households** (`/api/v1/households/...`): create multiple households,
   each with its own categories and budget. Budget has two layers: a
   household-level **default monthly budget** (`Household.defaultMonthlyBudget`,
@@ -97,15 +111,20 @@ What works right now:
 - **Custom title bar** (`WindowTitleBar.kt`): the window is undecorated
   (`Main.kt`) so the default OS minimize/maximize/close buttons — which
   read as flat and generic — are replaced with colored, hover-responsive
-  circular buttons in the app's indigo/teal/amber/rose palette. Dragging
-  the bar moves the window (`WindowDraggableArea`). Maximize respects the
-  Windows taskbar (`DashboardApp.kt` sets `window.maximizedBounds`
-  explicitly, via `Toolkit.getScreenInsets`, recomputed on every maximize
-  click against whichever monitor the window is currently on — undecorated
-  AWT windows don't pick up the work area on their own the way natively-
-  decorated ones do, so without this, maximizing covered the taskbar; and
-  computing it once at startup instead of per-click would give the wrong
-  bounds after dragging the window to a different monitor).
+  circular buttons in the app's indigo/teal/amber/rose palette. Maximize
+  respects the Windows taskbar (`WindowGeometry.kt` computes usable
+  bounds via `Toolkit.getScreenInsets`, recomputed fresh every time
+  against whichever monitor the window is currently on — undecorated AWT
+  windows don't pick up the work area on their own the way natively-
+  decorated ones do, and computing it once at startup instead of per-use
+  would give the wrong bounds after dragging to a different monitor).
+  Dragging the title bar moves the window (a custom AWT
+  `MouseMotionListener`-based implementation mirroring Compose Desktop's
+  own `WindowDraggableArea`, since the snap gesture below needed a
+  drag-end hook that component doesn't expose) and also **snaps**: drag
+  to the top edge to maximize, drag to the left/right edge for a
+  half-screen split — the native Windows Aero Snap gestures, which
+  undecorated windows don't get for free.
 - App identity: a generated icon — two stacked gold coins with a ₹ symbol,
   on the indigo → teal gradient background matching the UI theme — wired
   into the runtime window, title bar, and the installer, plus an
@@ -202,7 +221,10 @@ proper installer.
 - System tray / start-on-login.
 - `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.
-- Windows Aero Snap / edge-snap-to-resize — undecorating the window to
-  draw a custom title bar means the OS no longer owns window-chrome
-  gestures. Basic drag-to-move and edge resizing work; snapping a window
-  to half the screen by dragging it to an edge does not, yet.
+- Category rename — `HouseholdSettingsDialog`'s category list only
+  supports removing (archiving) one, not editing its name in place.
+- Real push updates (`/ws/changes` from Design/Windows/03-rest-api.md is
+  aspirational, not implemented) — the sidebar and open detail screen
+  currently catch up via polling every 4s (`DashboardApp.kt`) rather than
+  a live push, so there's a few seconds of lag after an external write
+  (e.g. a seed-data script, or eventually another synced device).

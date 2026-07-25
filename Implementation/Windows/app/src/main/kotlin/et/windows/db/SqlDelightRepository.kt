@@ -71,6 +71,12 @@ class SqlDelightRepository(
         }
     }
 
+    override suspend fun categoryById(categoryId: String): Category? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectCategoryById(categoryId).executeAsOneOrNull()?.let {
+            Category(it.id, it.householdId, it.name, it.icon, it.isArchived == 1L)
+        }
+    }
+
     override suspend fun saveCategory(category: Category): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L)
         logOp(EntityType.CATEGORY, category.id, mapOf("name" to JsonPrimitive(category.name)))
