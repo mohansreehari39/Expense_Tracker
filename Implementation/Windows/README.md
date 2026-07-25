@@ -226,12 +226,18 @@ proper installer.
   dialog for picking a mode yet.
 - Settling up: suggestions are computed and shown, but there's no button
   yet to actually record a `Settlement` from a suggestion.
-- The JVM `Transport` (JmDNS + sockets) from
+- The full JVM `Transport`/`SyncChannel` binary sync protocol from
   [Design/Windows/02-transport-implementation.md](../../Design/Windows/02-transport-implementation.md)
-  — nothing syncs with another device yet; this app only talks to itself.
+  — nothing does real operation-log sync with another device yet; this app
+  only talks to itself. What *does* exist: this server advertises itself
+  on the LAN via mDNS (`server/LanAdvertiser.kt`, JmDNS, same service type
+  `_expensetracker._tcp.local.` the design doc anticipated) purely so the
+  Android app can find its current address without a manual IP — a much
+  lighter thing than the full sync protocol.
 - Real QR device pairing — the Add Member/Participant QR is a placeholder
-  payload (see above), not the `Core/sync/Pairing.kt` handshake; nothing
-  can scan it yet since the Android app doesn't exist.
+  payload (see above), not the `Core/sync/Pairing.kt` handshake. The
+  Android app does scan it now (that app exists as of this pass), but only
+  to connect + deep-link, not to actually pair/sync anything.
 - System tray / start-on-login.
 - `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.

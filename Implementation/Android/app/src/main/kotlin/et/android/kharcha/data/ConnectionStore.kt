@@ -1,6 +1,7 @@
 package et.android.kharcha.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -11,14 +12,15 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore by preferencesDataStore(name = "kharcha")
 
 /**
- * Everything this device remembers locally: which server to talk to, and
- * "who am I" per household/activity (there's no login — the first time you
- * open one, you pick your name from its member/participant list, or add
- * yourself; that choice is what powers the summary screen's owed/owe
- * rollup and defaults who paid on a new expense).
+ * Everything this device remembers locally: the one-time signup name (see
+ * [myName]), which server to talk to, per-household/activity member/
+ * participant ids this profile resolves to (auto-resolved once via
+ * [IdentityResolver] — no per-screen prompt), and the dark-mode override.
  */
 class ConnectionStore(private val context: Context) {
     private val serverBaseUrlKey = stringPreferencesKey("server_base_url")
+    private val myNameKey = stringPreferencesKey("my_name")
+    private val darkModeKey = booleanPreferencesKey("dark_mode")
 
     val serverBaseUrl: Flow<String?> = context.dataStore.data.map { it[serverBaseUrlKey] }
 
@@ -30,6 +32,22 @@ class ConnectionStore(private val context: Context) {
 
     suspend fun clearServerBaseUrl() {
         context.dataStore.edit { it.remove(serverBaseUrlKey) }
+    }
+
+    /** Set once at signup, reused everywhere as this device's identity — see [IdentityResolver]. */
+    val myName: Flow<String?> = context.dataStore.data.map { it[myNameKey] }
+
+    suspend fun currentMyName(): String? = myName.first()
+
+    suspend fun setMyName(name: String) {
+        context.dataStore.edit { it[myNameKey] = name.trim() }
+    }
+
+    /** null = follow the system setting; otherwise an explicit user override. */
+    val darkMode: Flow<Boolean?> = context.dataStore.data.map { it[darkModeKey] }
+
+    suspend fun setDarkMode(enabled: Boolean) {
+        context.dataStore.edit { it[darkModeKey] = enabled }
     }
 
     suspend fun myMemberId(householdId: String): String? =

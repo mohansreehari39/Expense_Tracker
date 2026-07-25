@@ -10,29 +10,59 @@ those documents describe the eventual destination, not the current state.
 
 ## What's implemented
 
-- **Connect / join**: on first launch, connect to a Windows app instance
-  either by scanning the QR code shown in that app's Household/Activity
-  Settings ("+ Add" — see `JoinInvite.kt`), or by typing the machine's
-  `ip:port` manually. The QR carries the server's address plus which
-  household/activity to jump straight to.
+- **Signup**: shown once, before anything else, independent of any server
+  connection — just a name (`SignupScreen.kt`, stored via
+  `data/ConnectionStore.kt`). There's no login; this name is reused
+  everywhere as this device's identity (`data/IdentityResolver.kt`
+  auto-resolves it into a member/participant id for every household/
+  activity the device can see, the first time each is fetched — no
+  per-screen "who are you" prompt).
+- **Connect / join**: scanning the QR code shown in the Windows app's
+  Household/Activity Settings ("+ Add" — see `JoinInvite.kt`) is the only
+  way to connect in a release build. The server's *current* LAN address is
+  found via mDNS discovery (`data/NsdDiscovery.kt`) rather than trusting a
+  literal address, so it keeps working after the Windows machine's IP
+  changes — see "Discovery and dynamic IPs" below. Manual `ip:port` entry
+  still exists but only in debug builds (`BuildConfig.DEBUG`), as a
+  developer convenience for when multicast doesn't work (e.g. an emulator).
+- **Dark/light mode**: a switch in the drawer footer, this device's own
+  choice, not synced with the Windows app's theme setting.
 - **Navigation shell**: a hamburger-icon drawer (`KharchaApp.kt`) listing
   Households/Activities, mirroring the Windows app's sidebar sections, with
   "+" to create either and a "Scan QR to join" / "Change server" footer.
 - **Landing/Summary screen** (`SummaryScreen.kt`): nothing is selected by
   default, so this shows each household's *monthly* budget only (no room
   for the full weekly breakdown on a phone screen), plus a rollup of what
-  you're owed / you owe across activities you've set an identity in.
+  you're owed / you owe across activities.
 - **Household screen** (`HouseholdScreen.kt`): two budget bars — this
   month, and the current week with prev/next arrows to browse other weeks
   — plus the expense list (add/edit/delete, date picker, category dropdown,
   paid-by as tappable chips).
 - **Activity screen** (`ActivityScreen.kt`): overall budget bar, your
   balance and everyone's balances, expense list (add/edit/delete).
-- **Identity**: there's no login. The first time you open a household/
-  activity on this device, you pick which existing member/participant is
-  "you" (or add yourself) — see `IdentityDialog.kt` and
-  `data/ConnectionStore.kt`. This is what powers the owed/owe rollup and
-  defaults who paid on a new expense.
+
+## Discovery and dynamic IPs
+
+The Windows server advertises itself on the LAN via mDNS
+(`Implementation/Windows/.../server/LanAdvertiser.kt`, using JmDNS —
+matches the service type `_expensetracker._tcp.local.` already anticipated
+in `Design/Windows/02-transport-implementation.md`). Android resolves it
+live via `NsdManager` every time it needs to connect (`data/NsdDiscovery.kt`)
+— nothing about the server's address is ever trusted from a cache alone.
+This solves two things at once: production builds don't need a manual IP
+field at all (just the QR, which identifies *which* household/activity,
+not *where* the server is), and a DHCP lease change on the Windows machine
+heals itself on the next connect instead of breaking a previously-scanned
+QR. If discovery times out (multicast blocked on some networks, or the
+Windows app isn't running), the QR's own embedded address
+(`JoinInvitePayload.host`/`port`) is used as a fallback.
+
+**Caveat:** mDNS/multicast is known to be unreliable on Android emulators
+specifically (see [[testing-conventions]] in project memory) — this was
+implemented and compile-verified, but the emulator available earlier in
+this project's session was gone by the time this feature was built, so it
+has **not** been runtime-verified end-to-end. Confirming it needs a real
+phone and the Windows PC on the same wifi.
 
 ## Why standalone (not shared Core modules)
 
@@ -65,25 +95,20 @@ not a correctness bug in what's here.
 
 ## Verified so far
 
-Built and run in an Android emulator (no physical device available) against
-a live Windows app instance over the LAN:
-- Connect via manual `ip:port` entry (QR scanning itself — the camera
-  flow — could not be exercised without a real QR code to point a camera
-  at, only that `ScanContract` launches without crashing).
-- A first attempt crashed the whole app on a network failure (unhandled
-  exception in a `LaunchedEffect` coroutine) — fixed by wrapping every
-  screen's initial load in try/catch with a retry screen
-  (`ConnectionErrorScreen.kt`); reconfirmed working afterwards.
-- Drawer navigation, household screen's monthly + weekly bars (including
-  the calendar-day week math matching the Windows app's), identity
-  selection, and a full add-expense round trip (amount, category, paid-by,
-  date → save → list and both bars update).
+**Runtime-verified in an Android emulator** (first draft, before the
+signup/dark-mode/discovery batch below): connect via manual `ip:port`,
+drawer navigation, household screen's monthly + weekly bars (including the
+calendar-day week math matching the Windows app's), identity selection,
+and a full add-expense round trip — plus a real crash found and fixed
+(unhandled network errors in a `LaunchedEffect` now show a retry screen,
+`ConnectionErrorScreen.kt`, instead of taking down the app).
 
-**Not yet interactively verified**: the activity/trip screen's balances UI,
-edit/delete of an existing expense, and the actual QR camera scan (only
-that the scanner launches) — these follow the same patterns as what was
-verified and are expected to work, but say so rather than claim more than
-was checked.
+**Compile-verified only** (emulator was no longer available when this was
+built): signup screen, automatic identity resolution replacing the old
+per-screen prompt, the dark/light toggle, debug-gated manual entry, and
+the mDNS/NSD discovery path. These follow the same patterns as what was
+runtime-verified, but say so rather than claim more than was checked —
+worth an actual on-device pass before relying on them.
 
 ## Not implemented
 
@@ -110,7 +135,7 @@ This is its own Gradle root (not part of the Windows/Core composite build)
 Needs an Android SDK with `compileSdk 36` / `build-tools 36.0.0` installed
 and `local.properties` pointing `sdk.dir` at it (gitignored, per-machine).
 The Windows app must be running and reachable on the same network; its
-server binds to all interfaces on port 47321 by default
-(`Implementation/Windows/.../server/Server.kt`), and the app's manifest
-sets `usesCleartextTraffic="true"` since the connection is plain HTTP, not
-HTTPS, on the local network.
+server binds to all interfaces on port 47321 by default and now also
+advertises itself via mDNS (`Implementation/Windows/.../server/Server.kt`,
+`LanAdvertiser.kt`). The app's manifest sets `usesCleartextTraffic="true"`
+since the connection is plain HTTP, not HTTPS, on the local network.

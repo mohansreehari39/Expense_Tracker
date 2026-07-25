@@ -45,7 +45,6 @@ fun ActivityScreen(api: ApiClient, store: ConnectionStore, tripId: String, onCha
     var detail by remember { mutableStateOf<TripDetailResponse?>(null) }
     var myParticipantId by remember { mutableStateOf<String?>(null) }
     var showAddExpense by remember { mutableStateOf(false) }
-    var showIdentity by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<TripExpenseDto?>(null) }
     var expenseToDelete by remember { mutableStateOf<TripExpenseDto?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -84,11 +83,6 @@ fun ActivityScreen(api: ApiClient, store: ConnectionStore, tripId: String, onCha
             LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
                 item {
                     Text(current.trip.name, style = MaterialTheme.typography.headlineSmall)
-                    if (myParticipantId == null) {
-                        TextButton(onClick = { showIdentity = true }, modifier = Modifier.padding(top = 4.dp)) {
-                            Text("Who are you in this activity?")
-                        }
-                    }
                     Spacer(Modifier.height(12.dp))
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp)) { BudgetBar("Overall budget", current.trip.evaluation) }
@@ -217,24 +211,6 @@ fun ActivityScreen(api: ApiClient, store: ConnectionStore, tripId: String, onCha
                     reload()
                 }
             },
-        )
-    }
-
-    if (showIdentity && current != null) {
-        IdentityDialog(
-            title = "Who are you?",
-            people = current.participants.map { it.id to it.displayName },
-            onSelect = { id ->
-                scope.launch { store.setMyParticipantId(tripId, id) }
-                myParticipantId = id
-                showIdentity = false
-            },
-            onCreateNew = { name ->
-                val created = api.addTripParticipant(tripId, name)
-                detail = current.copy(participants = current.participants + created)
-                created.id to created.displayName
-            },
-            onDismiss = { showIdentity = false },
         )
     }
 }

@@ -30,6 +30,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     sourceSets["main"].kotlin.srcDirs("src/main/kotlin")

@@ -1,6 +1,7 @@
 package et.android.kharcha.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
@@ -51,6 +53,10 @@ import et.android.kharcha.data.CreateTripRequest
 import et.android.kharcha.data.HouseholdDto
 import et.android.kharcha.data.TripDto
 import et.android.kharcha.data.decodeJoinInvite
+import et.android.kharcha.data.discoverKharchaServer
+import et.android.kharcha.data.ensureMyIdentity
+import et.android.kharcha.ui.theme.KharchaTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 private const val ROUTE_SUMMARY = "summary"
@@ -62,44 +68,66 @@ fun KharchaApp() {
     val context = LocalContext.current
     val store = remember { ConnectionStore(context) }
     var baseUrl by remember { mutableStateOf<String?>(null) }
+    var myName by remember { mutableStateOf<String?>(null) }
+    var darkModeOverride by remember { mutableStateOf<Boolean?>(null) }
     var loaded by remember { mutableStateOf(false) }
     var pendingDeepLink by remember { mutableStateOf<Pair<String, String>?>(null) }
     val scope = rememberCoroutineScope()
+    val systemDark = isSystemInDarkTheme()
 
     LaunchedEffect(Unit) {
         baseUrl = store.currentServerBaseUrl()
+        myName = store.currentMyName()
+        darkModeOverride = store.darkMode.first()
         loaded = true
     }
 
-    if (!loaded) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-        return
-    }
+    KharchaTheme(darkTheme = darkModeOverride ?: systemDark) {
+        if (!loaded) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            return@KharchaTheme
+        }
 
-    val currentBaseUrl = baseUrl
-    if (currentBaseUrl == null) {
-        ConnectScreen(onConnected = { url, kind, id ->
-            scope.launch { store.setServerBaseUrl(url) }
-            if (kind != null && id != null) pendingDeepLink = kind to id
-            baseUrl = url
-        })
-    } else {
-        val api = remember(currentBaseUrl) { ApiClient(currentBaseUrl) }
-        ConnectedApp(
-            api = api,
-            store = store,
-            initialDeepLink = pendingDeepLink,
-            onDeepLinkConsumed = { pendingDeepLink = null },
-            onChangeServer = {
-                scope.launch { store.clearServerBaseUrl() }
-                baseUrl = null
-            },
-            onJoinNew = { url, kind, id ->
+        val currentMyName = myName
+        if (currentMyName == null) {
+            SignupScreen(onSignedUp = { name ->
+                scope.launch { store.setMyName(name) }
+                myName = name
+            })
+            return@KharchaTheme
+        }
+
+        val currentBaseUrl = baseUrl
+        if (currentBaseUrl == null) {
+            ConnectScreen(onConnected = { url, kind, id ->
                 scope.launch { store.setServerBaseUrl(url) }
-                pendingDeepLink = kind to id
+                if (kind != null && id != null) pendingDeepLink = kind to id
                 baseUrl = url
-            },
-        )
+            })
+        } else {
+            val api = remember(currentBaseUrl) { ApiClient(currentBaseUrl) }
+            ConnectedApp(
+                api = api,
+                store = store,
+                myName = currentMyName,
+                darkMode = darkModeOverride ?: systemDark,
+                onSetDarkMode = { enabled ->
+                    scope.launch { store.setDarkMode(enabled) }
+                    darkModeOverride = enabled
+                },
+                initialDeepLink = pendingDeepLink,
+                onDeepLinkConsumed = { pendingDeepLink = null },
+                onChangeServer = {
+                    scope.launch { store.clearServerBaseUrl() }
+                    baseUrl = null
+                },
+                onJoinNew = { url, kind, id ->
+                    scope.launch { store.setServerBaseUrl(url) }
+                    pendingDeepLink = kind to id
+                    baseUrl = url
+                },
+            )
+        }
     }
 }
 
@@ -108,6 +136,9 @@ fun KharchaApp() {
 private fun ConnectedApp(
     api: ApiClient,
     store: ConnectionStore,
+    myName: String,
+    darkMode: Boolean,
+    onSetDarkMode: (Boolean) -> Unit,
     initialDeepLink: Pair<String, String>?,
     onDeepLinkConsumed: () -> Unit,
     onChangeServer: () -> Unit,
@@ -116,6 +147,7 @@ private fun ConnectedApp(
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var households by remember { mutableStateOf<List<HouseholdDto>>(emptyList()) }
     var trips by remember { mutableStateOf<List<TripDto>>(emptyList()) }
@@ -129,6 +161,7 @@ private fun ConnectedApp(
         try {
             households = api.households()
             trips = api.trips()
+            ensureMyIdentity(api, store, myName, households, trips)
             loadError = null
             everLoaded = true
         } catch (e: Exception) {
@@ -157,7 +190,10 @@ private fun ConnectedApp(
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val text = result.contents ?: return@rememberLauncherForActivityResult
         val invite = decodeJoinInvite(text) ?: return@rememberLauncherForActivityResult
-        onJoinNew(invite.serverBaseUrl, invite.kind, invite.id)
+        scope.launch {
+            val discovered = discoverKharchaServer(context)
+            onJoinNew(discovered?.baseUrl ?: invite.serverBaseUrl, invite.kind, invite.id)
+        }
     }
 
     ModalNavigationDrawer(
@@ -179,6 +215,8 @@ private fun ConnectedApp(
                     onAddActivity = { showCreateTrip = true },
                     onScanToJoin = { scanLauncher.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false)) },
                     onChangeServer = onChangeServer,
+                    darkMode = darkMode,
+                    onSetDarkMode = onSetDarkMode,
                 )
             }
         },
@@ -270,6 +308,8 @@ private fun DrawerContent(
     onAddActivity: () -> Unit,
     onScanToJoin: () -> Unit,
     onChangeServer: () -> Unit,
+    darkMode: Boolean,
+    onSetDarkMode: (Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
         LazyColumn(Modifier.weight(1f)) {
@@ -306,6 +346,14 @@ private fun DrawerContent(
             onClick = onChangeServer,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (darkMode) "Dark Mode" else "Light Mode", style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = darkMode, onCheckedChange = onSetDarkMode)
+        }
     }
 }
 

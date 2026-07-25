@@ -53,7 +53,6 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
     var weekIndex by remember { mutableStateOf(0) }
     var myMemberId by remember { mutableStateOf<String?>(null) }
     var showAddExpense by remember { mutableStateOf(false) }
-    var showIdentity by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
     var expenseToDelete by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -103,11 +102,6 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
             item {
                 Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
-                if (myMemberId == null) {
-                    TextButton(onClick = { showIdentity = true }, modifier = Modifier.padding(top = 4.dp)) {
-                        Text("Who are you in this household?")
-                    }
-                }
                 Spacer(Modifier.height(12.dp))
 
                 Card(Modifier.fillMaxWidth()) {
@@ -216,24 +210,6 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
                     reload()
                 }
             },
-        )
-    }
-
-    if (showIdentity) {
-        IdentityDialog(
-            title = "Who are you?",
-            people = members.map { it.id to it.displayName },
-            onSelect = { id ->
-                scope.launch { store.setMyMemberId(householdId, id) }
-                myMemberId = id
-                showIdentity = false
-            },
-            onCreateNew = { name ->
-                val created = api.addMember(householdId, name)
-                members = members + created
-                created.id to created.displayName
-            },
-            onDismiss = { showIdentity = false },
         )
     }
 }

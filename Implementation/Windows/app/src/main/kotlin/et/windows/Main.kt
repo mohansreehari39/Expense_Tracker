@@ -14,6 +14,7 @@ import et.windows.db.SqlDelightRepository
 import et.windows.db.openDatabase
 import et.windows.server.AppServices
 import et.windows.server.DEFAULT_PORT
+import et.windows.server.advertiseOnLan
 import et.windows.server.startServer
 import et.windows.ui.ApiClient
 import et.windows.ui.DashboardApp
@@ -39,7 +40,13 @@ fun main() {
     val services = AppServices(repository, deviceId)
 
     val server = startServer(services, DEFAULT_PORT)
-    Runtime.getRuntime().addShutdownHook(Thread { server.stop(gracePeriodMillis = 500, timeoutMillis = 2000) })
+    val lanAdvertisement = advertiseOnLan(DEFAULT_PORT)
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            server.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
+            lanAdvertisement?.close()
+        },
+    )
 
     application {
         val icon = remember { BitmapPainter(useResource("icon.png") { loadImageBitmap(it) }) }
