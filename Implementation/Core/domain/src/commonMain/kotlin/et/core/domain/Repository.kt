@@ -23,6 +23,8 @@ interface Repository {
     suspend fun household(householdId: String): Household?
     suspend fun saveHousehold(household: Household)
     suspend fun categories(householdId: String): List<Category>
+    /** Unlike [categories], includes archived ones — needed to look one up before re-saving it. */
+    suspend fun categoryById(categoryId: String): Category?
     suspend fun saveCategory(category: Category)
 
     suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget?

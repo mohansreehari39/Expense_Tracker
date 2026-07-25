@@ -72,7 +72,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
-            Button(onClick = { showAddExpense = true }, enabled = categories.isNotEmpty()) { Text("➕ Add Expense") }
+            Button(onClick = { showAddExpense = true }) { Text("➕ Add Expense") }
         }
 
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -156,6 +156,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             categories = categories,
             currency = currency,
             onDismiss = { showAddExpense = false },
+            onCreateCategory = { name -> api.addCategory(householdId, name) },
             onSubmit = { request ->
                 scope.launch {
                     api.recordExpense(householdId, request)

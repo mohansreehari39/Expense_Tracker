@@ -6,7 +6,6 @@ import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import et.core.model.HlcClock
@@ -61,10 +60,6 @@ fun main() {
                 icon = icon,
                 windowState = windowState,
                 onMinimize = { windowState.isMinimized = true },
-                onToggleMaximize = {
-                    windowState.placement =
-                        if (windowState.placement == WindowPlacement.Maximized) WindowPlacement.Floating else WindowPlacement.Maximized
-                },
                 onClose = ::exitApplication,
             )
         }

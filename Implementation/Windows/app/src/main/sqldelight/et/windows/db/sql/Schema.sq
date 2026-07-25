@@ -60,6 +60,9 @@ INSERT OR REPLACE INTO category (id, householdId, name, icon, isArchived) VALUES
 selectCategories:
 SELECT * FROM category WHERE householdId = ? AND isArchived = 0;
 
+selectCategoryById:
+SELECT * FROM category WHERE id = ?;
+
 CREATE TABLE monthlyBudget (
     id TEXT NOT NULL PRIMARY KEY,
     householdId TEXT NOT NULL,
