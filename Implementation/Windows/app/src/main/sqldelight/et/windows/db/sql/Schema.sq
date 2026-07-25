@@ -63,6 +63,19 @@ SELECT * FROM category WHERE householdId = ? AND isArchived = 0;
 selectCategoryById:
 SELECT * FROM category WHERE id = ?;
 
+CREATE TABLE member (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    displayName TEXT NOT NULL,
+    deviceId TEXT
+);
+
+upsertMember:
+INSERT OR REPLACE INTO member (id, householdId, displayName, deviceId) VALUES (?, ?, ?, ?);
+
+selectMembers:
+SELECT * FROM member WHERE householdId = ?;
+
 CREATE TABLE monthlyBudget (
     id TEXT NOT NULL PRIMARY KEY,
     householdId TEXT NOT NULL,

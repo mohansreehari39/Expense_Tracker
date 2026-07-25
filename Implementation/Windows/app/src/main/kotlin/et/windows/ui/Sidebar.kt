@@ -92,7 +92,7 @@ fun Sidebar(
         households.forEach { household ->
             SidebarRow(
                 label = household.name,
-                statusColor = household.weekEvaluation?.let { statusColor(it.status) },
+                statusColor = household.monthEvaluation?.let { statusColor(it.status) },
                 selected = selection == Selection.HouseholdSel(household.id),
                 onClick = { onSelect(Selection.HouseholdSel(household.id)) },
                 onSettings = {

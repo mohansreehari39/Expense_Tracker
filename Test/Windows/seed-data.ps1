@@ -39,12 +39,17 @@ function ParticipantId($detail, $name) {
     ($detail.participants | Where-Object { $_.displayName -eq $name }).id
 }
 
-function AddHouseholdExpense($householdId, $categoryId, $amountMinorUnits, $daysAgo, $note) {
+function AddMember($householdId, $displayName) {
+    $body = @{ displayName = $displayName } | ConvertTo-Json
+    (Invoke-RestMethod -Uri "$Base/households/$householdId/members" -Method Post -ContentType "application/json" -Body $body).id
+}
+
+function AddHouseholdExpense($householdId, $categoryId, $amountMinorUnits, $memberId, $daysAgo, $note) {
     $body = @{
         categoryId       = $categoryId
         amountMinorUnits = $amountMinorUnits
         currency         = "INR"
-        paidByMemberId   = "local"
+        paidByMemberId   = $memberId
         occurredAt       = (DaysAgoMillis $daysAgo)
         note             = $note
     } | ConvertTo-Json -Depth 5
@@ -78,15 +83,18 @@ $rent = CatId $h1Detail "Rent"
 $eating = CatId $h1Detail "Eating Out"
 $other = CatId $h1Detail "Other"
 
-AddHouseholdExpense $h1Id $rent 1500000 20 "July rent"
-AddHouseholdExpense $h1Id $groceries 180000 12 "Big Bazaar run"
-AddHouseholdExpense $h1Id $eating 95000 6 "Family dinner"
-AddHouseholdExpense $h1Id $utilities 250000 5 "Electricity bill"
-AddHouseholdExpense $h1Id $groceries 320000 3 "Weekly groceries"
-AddHouseholdExpense $h1Id $other 60000 2 "Household supplies"
-AddHouseholdExpense $h1Id $eating 310000 1 "Weekend takeout"
-AddHouseholdExpense $h1Id $groceries 280000 0 "Fresh produce"
-Write-Host "  household=$h1Id, budget=Rs 45,000"
+$rohan = AddMember $h1Id "Rohan"
+$sneha = AddMember $h1Id "Sneha"
+
+AddHouseholdExpense $h1Id $rent 1500000 $rohan 20 "July rent"
+AddHouseholdExpense $h1Id $groceries 180000 $sneha 12 "Big Bazaar run"
+AddHouseholdExpense $h1Id $eating 95000 $rohan 6 "Family dinner"
+AddHouseholdExpense $h1Id $utilities 250000 $rohan 5 "Electricity bill"
+AddHouseholdExpense $h1Id $groceries 320000 $sneha 3 "Weekly groceries"
+AddHouseholdExpense $h1Id $other 60000 $sneha 2 "Household supplies"
+AddHouseholdExpense $h1Id $eating 310000 $rohan 1 "Weekend takeout"
+AddHouseholdExpense $h1Id $groceries 280000 $sneha 0 "Fresh produce"
+Write-Host "  household=$h1Id, budget=Rs 45,000, members=Rohan,Sneha"
 
 Write-Host "== Household 2: Roommates (comfortably under budget) =="
 $h2 = Invoke-RestMethod -Uri "$Base/households" -Method Post -ContentType "application/json" -Body (@{ name = "Roommates" } | ConvertTo-Json)
@@ -94,9 +102,11 @@ $h2Id = $h2.id
 Invoke-RestMethod -Uri "$Base/households/$h2Id/budgets" -Method Post -ContentType "application/json" `
     -Body (@{ year = $Year; month = $Month; totalAmountMinorUnits = 2000000; currency = "INR" } | ConvertTo-Json) | Out-Null
 $h2Detail = Invoke-RestMethod -Uri "$Base/households/$h2Id"
-AddHouseholdExpense $h2Id (CatId $h2Detail "Utilities") 150000 2 "Wifi bill"
-AddHouseholdExpense $h2Id (CatId $h2Detail "Groceries") 90000 5 "Shared snacks"
-Write-Host "  household=$h2Id, budget=Rs 20,000"
+$alex = AddMember $h2Id "Alex"
+$jordan = AddMember $h2Id "Jordan"
+AddHouseholdExpense $h2Id (CatId $h2Detail "Utilities") 150000 $alex 2 "Wifi bill"
+AddHouseholdExpense $h2Id (CatId $h2Detail "Groceries") 90000 $jordan 5 "Shared snacks"
+Write-Host "  household=$h2Id, budget=Rs 20,000, members=Alex,Jordan"
 
 Write-Host "== Activity 1: Goa Trip (3 participants, mixed balances) =="
 $t1Body = @{

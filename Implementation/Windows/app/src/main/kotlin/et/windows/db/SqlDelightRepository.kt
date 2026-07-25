@@ -9,6 +9,7 @@ import et.core.model.Hlc
 import et.core.model.HlcClock
 import et.core.model.Household
 import et.core.model.HouseholdExpense
+import et.core.model.Member
 import et.core.model.Money
 import et.core.model.MonthlyBudget
 import et.core.model.OpType
@@ -80,6 +81,17 @@ class SqlDelightRepository(
     override suspend fun saveCategory(category: Category): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L)
         logOp(EntityType.CATEGORY, category.id, mapOf("name" to JsonPrimitive(category.name)))
+    }
+
+    override suspend fun members(householdId: String): List<Member> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectMembers(householdId).executeAsList().map {
+            Member(it.id, it.householdId, it.displayName, it.deviceId)
+        }
+    }
+
+    override suspend fun saveMember(member: Member): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.upsertMember(member.id, member.householdId, member.displayName, member.deviceId)
+        logOp(EntityType.MEMBER, member.id, mapOf("displayName" to JsonPrimitive(member.displayName)))
     }
 
     override suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget? =

@@ -94,7 +94,7 @@ private fun HouseholdCard(household: HouseholdDto, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp)) {
             Text(household.name, style = MaterialTheme.typography.titleLarge)
-            val evaluation = household.weekEvaluation
+            val evaluation = household.monthEvaluation
             if (evaluation == null) {
                 Text("No budget set yet", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {

@@ -26,13 +26,17 @@ data class DateRange(val start: LocalDate, val endInclusive: LocalDate) {
 }
 
 object WeeklyBudget {
-    /** Mon–Sun week containing [date]. */
+    /**
+     * The calendar-day week containing [date]: day-of-month 1-7, 8-14,
+     * 15-21, 22-28, then a final short week covering whatever days remain
+     * (29-30, 29-31, or just 29-28 in February). Always fully inside the
+     * month [date] falls in, unlike an ISO Mon-Sun week.
+     */
     fun weekContaining(date: LocalDate): DateRange {
-        val epochDay = date.toEpochDays()
-        val isoWeekday = floorMod(epochDay + 3, 7) + 1 // epoch day 0 (1970-01-01) was a Thursday = 4
-        val monday = LocalDate.fromEpochDays(epochDay - (isoWeekday - 1))
-        val sunday = LocalDate.fromEpochDays(monday.toEpochDays() + 6)
-        return DateRange(monday, sunday)
+        val monthLength = monthRange(date.year, date.monthNumber).lengthDays
+        val startDay = ((date.dayOfMonth - 1) / 7) * 7 + 1
+        val endDay = minOf(startDay + 6, monthLength)
+        return DateRange(LocalDate(date.year, date.monthNumber, startDay), LocalDate(date.year, date.monthNumber, endDay))
     }
 
     fun monthRange(year: Int, month: Int): DateRange {
@@ -63,5 +67,3 @@ object WeeklyBudget {
         return Money(allocated, totalAmount.currency)
     }
 }
-
-private fun floorMod(x: Int, m: Int): Int = ((x % m) + m) % m

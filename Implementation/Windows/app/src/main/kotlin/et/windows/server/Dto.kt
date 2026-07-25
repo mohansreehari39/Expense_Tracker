@@ -5,6 +5,7 @@ import et.core.domain.SuggestedTransfer
 import et.core.model.Category
 import et.core.model.Household
 import et.core.model.HouseholdExpense
+import et.core.model.Member
 import et.core.model.Money
 import et.core.model.MonthlyBudget
 import et.core.model.Trip
@@ -36,11 +37,11 @@ data class HouseholdDto(
     val id: String,
     val name: String,
     val defaultMonthlyBudget: MoneyDto? = null,
-    val weekEvaluation: BudgetEvaluationDto? = null,
+    val monthEvaluation: BudgetEvaluationDto? = null,
 )
 
-fun Household.toDto(weekEvaluation: BudgetEvaluationDto? = null) =
-    HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), weekEvaluation)
+fun Household.toDto(monthEvaluation: BudgetEvaluationDto? = null) =
+    HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), monthEvaluation)
 
 @Serializable
 data class CategoryDto(val id: String, val name: String, val icon: String)
@@ -48,10 +49,18 @@ data class CategoryDto(val id: String, val name: String, val icon: String)
 fun Category.toDto() = CategoryDto(id, name, icon)
 
 @Serializable
-data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>)
+data class MemberDto(val id: String, val displayName: String)
+
+fun Member.toDto() = MemberDto(id, displayName)
+
+@Serializable
+data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>, val members: List<MemberDto>)
 
 @Serializable
 data class AddCategoryRequest(val name: String)
+
+@Serializable
+data class AddMemberRequest(val displayName: String)
 
 @Serializable
 data class CreateHouseholdRequest(val name: String)

@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.CategoryDto
 import et.windows.server.HouseholdExpenseDto
+import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
 import et.windows.server.MoneyDto
 import et.windows.server.SetBudgetRequest
@@ -39,6 +40,7 @@ import java.util.Locale
 fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: Int) {
     var householdName by remember { mutableStateOf("") }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
+    var members by remember { mutableStateOf<List<MemberDto>>(emptyList()) }
     var monthBudget by remember { mutableStateOf<MonthBudgetResponse?>(null) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
@@ -53,6 +55,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             val response = api.household(householdId)
             householdName = response.household.name
             categories = response.categories
+            members = response.members
             monthBudget = api.monthBudget(householdId, today.year, today.monthValue)
             expenses = api.expenses(householdId, today.year, today.monthValue)
             error = null
@@ -136,10 +139,12 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
 
             items(expenses) { expense ->
                 val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
+                val paidByName = members.find { it.id == expense.paidByMemberId }?.displayName ?: expense.paidByMemberId
                 Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
                             Text(categoryName, style = MaterialTheme.typography.bodyLarge)
+                            Text("Paid by $paidByName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (expense.note.isNotBlank()) {
                                 Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -154,9 +159,11 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
     if (showAddExpense) {
         AddExpenseDialog(
             categories = categories,
+            members = members,
             currency = currency,
             onDismiss = { showAddExpense = false },
             onCreateCategory = { name -> api.addCategory(householdId, name) },
+            onCreateMember = { name -> api.addMember(householdId, name) },
             onSubmit = { request ->
                 scope.launch {
                     api.recordExpense(householdId, request)
