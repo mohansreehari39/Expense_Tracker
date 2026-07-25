@@ -85,6 +85,16 @@ class ApiClient(private val baseUrl: String) {
             setBody(request)
         }.body()
 
+    suspend fun updateExpense(householdId: String, expenseId: String, request: RecordExpenseRequest): RecordExpenseResponse =
+        client.put("$baseUrl/api/v1/households/$householdId/expenses/$expenseId") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun deleteExpense(householdId: String, expenseId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/expenses/$expenseId")
+    }
+
     // -- Trips / Activities ---------------------------------------------------
 
     suspend fun trips(): List<TripDto> = client.get("$baseUrl/api/v1/trips").body()
@@ -108,4 +118,14 @@ class ApiClient(private val baseUrl: String) {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
+
+    suspend fun updateTripExpense(tripId: String, expenseId: String, request: AddTripExpenseRequest): TripExpenseDto =
+        client.put("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
+    suspend fun deleteTripExpense(tripId: String, expenseId: String) {
+        client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
+    }
 }

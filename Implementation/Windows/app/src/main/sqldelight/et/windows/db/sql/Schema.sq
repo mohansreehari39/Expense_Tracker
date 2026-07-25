@@ -116,6 +116,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 selectHouseholdExpensesBetween:
 SELECT * FROM householdExpense WHERE householdId = ? AND occurredAt >= ? AND occurredAt < ? ORDER BY occurredAt DESC;
 
+selectHouseholdExpenseById:
+SELECT * FROM householdExpense WHERE id = ?;
+
+updateHouseholdExpense:
+UPDATE householdExpense SET categoryId = ?, amountMinorUnits = ?, currency = ?, paidByMemberId = ?, occurredAt = ?, note = ? WHERE id = ?;
+
+deleteHouseholdExpense:
+DELETE FROM householdExpense WHERE id = ?;
+
 CREATE TABLE trip (
     id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
@@ -168,6 +177,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 selectTripExpenses:
 SELECT * FROM tripExpense WHERE tripId = ? ORDER BY occurredAt DESC;
 
+selectTripExpenseById:
+SELECT * FROM tripExpense WHERE id = ?;
+
+updateTripExpense:
+UPDATE tripExpense SET categoryId = ?, amountMinorUnits = ?, currency = ?, paidByParticipantId = ?, occurredAt = ?, note = ? WHERE id = ?;
+
+deleteTripExpense:
+DELETE FROM tripExpense WHERE id = ?;
+
 CREATE TABLE expenseSplit (
     id TEXT NOT NULL PRIMARY KEY,
     tripExpenseId TEXT NOT NULL,
@@ -182,6 +200,9 @@ VALUES (?, ?, ?, ?, ?);
 
 selectExpenseSplits:
 SELECT * FROM expenseSplit WHERE tripExpenseId = ?;
+
+deleteExpenseSplitsForExpense:
+DELETE FROM expenseSplit WHERE tripExpenseId = ?;
 
 CREATE TABLE settlement (
     id TEXT NOT NULL PRIMARY KEY,

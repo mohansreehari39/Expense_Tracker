@@ -63,6 +63,26 @@ private suspend fun currentMonthEvaluation(services: AppServices, householdId: S
     return evaluateBudget(amount, spent)
 }
 
+private suspend fun weekEvaluationFor(
+    services: AppServices,
+    householdId: String,
+    occurredAt: Long,
+    currency: String,
+    spentSoFar: Money,
+): et.core.domain.BudgetEvaluation {
+    val week = WeeklyBudget.weekContaining(occurredAt.toLocalDate())
+    val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount
+    return if (amount == null) {
+        evaluateBudget(Money(0, currency), spentSoFar)
+    } else {
+        val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
+        val spent = services.repository
+            .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
+            .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }
+        evaluateBudget(allocated, spent)
+    }
+}
+
 private suspend fun tripEvaluation(services: AppServices, tripId: String, budget: Money): et.core.domain.BudgetEvaluation {
     val spent = services.repository.tripExpenses(tripId).fold(Money(0, budget.currency)) { acc, e -> acc + e.amount }
     return evaluateBudget(budget, spent)
@@ -230,20 +250,35 @@ private fun Route.households(services: AppServices) {
                         createdAt = Clock.System.now().toEpochMilliseconds(),
                         note = request.note,
                     )
+                    val weekEvaluation = weekEvaluationFor(services, householdId, expense.occurredAt, expense.amount.currency, expense.amount)
+                    call.respond(HttpStatusCode.Created, RecordExpenseResponse(expense.toDto(), weekEvaluation.toDto()))
+                }
 
-                    val week = WeeklyBudget.weekContaining(request.occurredAt.toLocalDate())
-                    val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount
-                    val weekEvaluation = if (amount == null) {
-                        evaluateBudget(Money(0, expense.amount.currency), expense.amount)
-                    } else {
-                        val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
-                        val spent = services.repository
-                            .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
-                            .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }
-                        evaluateBudget(allocated, spent)
+                route("/{expenseId}") {
+                    put {
+                        val householdId = call.parameters["householdId"]!!
+                        val expenseId = call.parameters["expenseId"]!!
+                        val request = call.receive<RecordExpenseRequest>()
+                        val expense = services.editHouseholdExpense(
+                            expenseId = expenseId,
+                            categoryId = request.categoryId,
+                            amount = Money(request.amountMinorUnits, request.currency),
+                            paidByMemberId = request.paidByMemberId,
+                            occurredAt = request.occurredAt,
+                            note = request.note,
+                        ) ?: return@put call.respond(HttpStatusCode.NotFound)
+                        val weekEvaluation = weekEvaluationFor(services, householdId, expense.occurredAt, expense.amount.currency, expense.amount)
+                        call.respond(RecordExpenseResponse(expense.toDto(), weekEvaluation.toDto()))
                     }
 
-                    call.respond(HttpStatusCode.Created, RecordExpenseResponse(expense.toDto(), weekEvaluation.toDto()))
+                    delete {
+                        val expenseId = call.parameters["expenseId"]!!
+                        if (services.repository.householdExpenseById(expenseId) == null) {
+                            return@delete call.respond(HttpStatusCode.NotFound)
+                        }
+                        services.repository.deleteHouseholdExpense(expenseId)
+                        call.respond(HttpStatusCode.NoContent)
+                    }
                 }
             }
         }
@@ -328,6 +363,33 @@ private fun Route.trips(services: AppServices) {
                         note = request.note,
                     )
                     call.respond(HttpStatusCode.Created, expense.toDto())
+                }
+
+                route("/{expenseId}") {
+                    put {
+                        val tripId = call.parameters["tripId"]!!
+                        val expenseId = call.parameters["expenseId"]!!
+                        val request = call.receive<AddTripExpenseRequest>()
+                        val participants = services.repository.tripParticipants(tripId)
+                        val expense = services.editTripExpenseWithSplit(
+                            expenseId = expenseId,
+                            amount = Money(request.amountMinorUnits, request.currency),
+                            paidByParticipantId = request.paidByParticipantId,
+                            occurredAt = request.occurredAt,
+                            splitMode = SplitMode.Equal(participants.map { it.id }),
+                            note = request.note,
+                        ) ?: return@put call.respond(HttpStatusCode.NotFound)
+                        call.respond(expense.toDto())
+                    }
+
+                    delete {
+                        val expenseId = call.parameters["expenseId"]!!
+                        if (services.repository.tripExpenseById(expenseId) == null) {
+                            return@delete call.respond(HttpStatusCode.NotFound)
+                        }
+                        services.repository.deleteTripExpenseWithSplits(expenseId)
+                        call.respond(HttpStatusCode.NoContent)
+                    }
                 }
             }
         }
