@@ -39,10 +39,14 @@ import androidx.compose.ui.unit.dp
 import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
 import et.windows.server.MoneyDto
+import et.windows.server.PairedDeviceDto
 import et.windows.server.TripDto
 import et.windows.server.UpdateHouseholdRequest
 import et.windows.server.UpdateTripRequest
 import kotlinx.coroutines.launch
+
+/** Android heartbeats every 15s (SyncEngine's SYNC_INTERVAL_MS) — double that before reading a device as offline rather than just between beats. */
+private const val DEVICE_ONLINE_WITHIN_MS = 30_000L
 
 sealed interface Selection {
     data object None : Selection
@@ -69,14 +73,17 @@ fun Sidebar(
 ) {
     var households by remember { mutableStateOf<List<HouseholdDto>>(emptyList()) }
     var trips by remember { mutableStateOf<List<TripDto>>(emptyList()) }
+    var devices by remember { mutableStateOf<List<PairedDeviceDto>>(emptyList()) }
     var showCreateHousehold by remember { mutableStateOf(false) }
     var showCreateTrip by remember { mutableStateOf(false) }
+    var showPairDevice by remember { mutableStateOf(false) }
     var settingsTarget by remember { mutableStateOf<SettingsTarget?>(null) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
         households = api.households()
         trips = api.trips()
+        devices = runCatching { api.devices() }.getOrDefault(devices)
     }
 
     LaunchedEffect(refreshSignal) { reload() }
@@ -121,6 +128,43 @@ fun Sidebar(
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     Row(
+        Modifier.fillMaxWidth().clickable { showPairDevice = true }.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("📱", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Add Android Device",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (devices.isNotEmpty()) {
+        val now = System.currentTimeMillis()
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            devices.forEach { device ->
+                val online = now - device.lastSeenAt < DEVICE_ONLINE_WITHIN_MS
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(8.dp).clip(CircleShape)
+                            .background(if (online) Color(0xFF2E7D32) else MaterialTheme.colorScheme.outlineVariant),
+                    )
+                    Text(device.label, style = MaterialTheme.typography.bodySmall, maxLines = 1, modifier = Modifier.weight(1f))
+                    SidebarIconButton(
+                        glyph = "✕",
+                        onClick = { scope.launch { api.removeDevice(device.id); devices = api.devices() } },
+                        size = 18.dp,
+                    )
+                }
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -132,6 +176,10 @@ fun Sidebar(
         )
         ThemeToggleSwitch(darkTheme = darkTheme, onToggle = onToggleTheme)
     }
+    }
+
+    if (showPairDevice) {
+        PairAndroidDeviceDialog(api = api, onDismiss = { showPairDevice = false })
     }
 
     if (showCreateHousehold) {

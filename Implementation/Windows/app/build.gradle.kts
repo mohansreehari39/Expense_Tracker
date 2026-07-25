@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.sqldelight.coroutines)
 
     implementation(libs.zxing.core)
+    implementation(libs.jmdns)
 
     // Without a real SLF4J backend, Ktor swallows server-side exceptions
     // entirely (they'd otherwise be logged via SLF4J's "Application"

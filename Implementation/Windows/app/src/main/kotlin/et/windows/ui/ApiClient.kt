@@ -12,6 +12,7 @@ import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
 import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
+import et.windows.server.PairedDeviceDto
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
 import et.windows.server.SetBudgetRequest
@@ -151,5 +152,11 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun archiveTripParticipant(tripId: String, participantId: String) {
         client.delete("$baseUrl/api/v1/trips/$tripId/participants/$participantId")
+    }
+
+    suspend fun devices(): List<PairedDeviceDto> = client.get("$baseUrl/api/v1/devices").body()
+
+    suspend fun removeDevice(id: String) {
+        client.delete("$baseUrl/api/v1/devices/$id")
     }
 }

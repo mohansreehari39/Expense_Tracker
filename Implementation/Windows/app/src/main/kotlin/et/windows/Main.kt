@@ -9,11 +9,13 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import et.core.model.HlcClock
+import et.windows.db.PairedDeviceStore
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
 import et.windows.db.openDatabase
 import et.windows.server.AppServices
 import et.windows.server.DEFAULT_PORT
+import et.windows.server.advertiseOnLan
 import et.windows.server.startServer
 import et.windows.ui.ApiClient
 import et.windows.ui.DashboardApp
@@ -36,10 +38,16 @@ fun main() {
     val deviceId = loadOrCreateDeviceId()
     val operationStore = SqlDelightOperationStore(db)
     val repository = SqlDelightRepository(db, operationStore, deviceId, HlcClock(deviceId))
-    val services = AppServices(repository, deviceId)
+    val services = AppServices(repository, deviceId, PairedDeviceStore(db))
 
     val server = startServer(services, DEFAULT_PORT)
-    Runtime.getRuntime().addShutdownHook(Thread { server.stop(gracePeriodMillis = 500, timeoutMillis = 2000) })
+    val lanAdvertisement = advertiseOnLan(DEFAULT_PORT)
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            server.stop(gracePeriodMillis = 500, timeoutMillis = 2000)
+            lanAdvertisement?.close()
+        },
+    )
 
     application {
         val icon = remember { BitmapPainter(useResource("icon.png") { loadImageBitmap(it) }) }

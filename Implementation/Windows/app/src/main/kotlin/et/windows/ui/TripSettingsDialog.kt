@@ -116,14 +116,16 @@ fun TripSettingsDialog(
     )
 
     if (showAddParticipant) {
+        val existingIds = remember { participants.map { it.id }.toSet() }
         AddPersonDialog(
             title = "Add Participant",
-            fieldLabel = "Participant name",
-            qrPayload = encodeJoinInvite(JoinInvitePayload(kind = "activity", id = tripId, name = currentName)),
+            qrPayload = encodeJoinInvite(joinInviteForTrip(tripId, currentName)),
             onDismiss = { showAddParticipant = false },
-            onAdd = { participantName ->
-                api.addTripParticipant(tripId, participantName)
-                reloadParticipants()
+            onPollForJoin = {
+                val fresh = api.trip(tripId).participants
+                val newParticipant = fresh.find { it.id !in existingIds }
+                if (newParticipant != null) participants = fresh
+                newParticipant?.displayName
             },
         )
     }

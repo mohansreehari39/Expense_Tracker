@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns theming (see ui/theme/Theme.kt); this just needs to
+         exist for the manifest/launch-splash window background. -->
+    <style name="Theme.Kharcha" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
