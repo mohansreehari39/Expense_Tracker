@@ -30,6 +30,59 @@ An Android app + Windows app for tracking household and trip expenses.
   trip settlement summaries, and simple spending suggestions.
 - Expenses can also be entered directly from the Windows app.
 
+## Pending for production
+
+A living checklist — check an item off (or delete it) here as it's fixed;
+add new ones here as they're found, rather than letting them live only in
+chat history. See `Implementation/Android/README.md` and
+`Implementation/Windows/README.md` for the fuller technical writeup behind
+each item.
+
+**Bugs (fix these first):**
+
+- [ ] Categories created on Android never get pushed to the Windows
+      server — `LocalRepository.addCategory` only writes locally, so
+      `SyncEngine.pushHouseholdPending`'s category lookup finds
+      `remoteId == null` and silently skips that expense forever. Fix
+      needs a "push pending categories" step mirroring the member-push
+      fix, run before pushing expenses that reference them. Categories
+      created on Windows already sync down to Android fine — only the
+      Android→Windows direction is broken.
+- [ ] Re-verify the rotating pairing-key flow end-to-end after last
+      night's implementation: pair a device → remove it from Windows →
+      confirm the phone actually stops syncing (gets a `410` and forgets
+      the pairing) instead of silently reconnecting.
+
+**Known gaps (v0 placeholders, not yet real):**
+
+- [ ] Real device-to-device (Android↔Android) sync — phones only sync via
+      a paired Windows instance today, not directly with each other.
+- [ ] Real QR pairing/crypto handshake (`Core/sync/Pairing.kt`) — all QR
+      flows on both apps currently use an unauthenticated placeholder
+      payload (`JoinInvitePayload`), not a real handshake.
+- [ ] Conflict resolution beyond "server wins, local queues pushes" —
+      concurrent edits to the same expense from two synced devices aren't
+      reconciled, just last-pull-wins.
+- [ ] Trip expense splits are equal-only in both UIs — `core-domain`'s
+      `SplitCalculator` already supports exact/percentage/weighted, no
+      dialog for picking a mode yet.
+- [ ] Settling up: suggested settlements are computed and shown, but
+      there's no button yet to actually record a `Settlement`.
+- [ ] Editing a category/member/participant's name in place isn't
+      supported on either app (only create + archive/remove).
+- [ ] Windows category management has no rename/archive UI (create-only
+      from the Add Expense picker).
+- [ ] Android's background sync is a simple in-app coroutine loop tied to
+      the process lifetime — no WorkManager, so it stops when the app is
+      killed/backgrounded long enough for Android to reclaim it.
+- [ ] No notifications on either platform (budget alerts, sync events).
+- [ ] Windows: no system tray / start-on-login.
+- [ ] Windows: no proper installer/packaging — dev-only via Gradle.
+- [ ] The full binary `Transport`/`SyncChannel` operation-log sync
+      protocol from `Design/Windows/02-transport-implementation.md` isn't
+      wired up — the REST API is used as an interim sync transport
+      instead; mDNS discovery exists just for address-finding.
+
 ## Repository layout
 
 | Folder | Contents |
