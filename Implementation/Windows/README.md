@@ -100,9 +100,12 @@ What works right now:
   circular buttons in the app's indigo/teal/amber/rose palette. Dragging
   the bar moves the window (`WindowDraggableArea`). Maximize respects the
   Windows taskbar (`DashboardApp.kt` sets `window.maximizedBounds`
-  explicitly, via `Toolkit.getScreenInsets` — undecorated AWT windows
-  don't pick up the work area on their own the way natively-decorated
-  ones do, so without this, maximizing covered the taskbar).
+  explicitly, via `Toolkit.getScreenInsets`, recomputed on every maximize
+  click against whichever monitor the window is currently on — undecorated
+  AWT windows don't pick up the work area on their own the way natively-
+  decorated ones do, so without this, maximizing covered the taskbar; and
+  computing it once at startup instead of per-click would give the wrong
+  bounds after dragging the window to a different monitor).
 - App identity: a generated icon — two stacked gold coins with a ₹ symbol,
   on the indigo → teal gradient background matching the UI theme — wired
   into the runtime window, title bar, and the installer, plus an
@@ -203,7 +206,3 @@ proper installer.
   draw a custom title bar means the OS no longer owns window-chrome
   gestures. Basic drag-to-move and edge resizing work; snapping a window
   to half the screen by dragging it to an edge does not, yet.
-- Multi-monitor maximize bounds: `window.maximizedBounds` is computed
-  once at startup from whichever screen the window opens on. If you drag
-  the window to a different monitor (with a different taskbar
-  position/size) before maximizing, it'll use the wrong bounds.
