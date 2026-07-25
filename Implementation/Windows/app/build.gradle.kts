@@ -48,6 +48,12 @@ dependencies {
     implementation(libs.sqldelight.driver.sqlite)
     implementation(libs.sqldelight.coroutines)
 
+    // Without a real SLF4J backend, Ktor swallows server-side exceptions
+    // entirely (they'd otherwise be logged via SLF4J's "Application"
+    // logger) — this is what made a 500 from the household budget
+    // schema change silent instead of showing a stack trace.
+    runtimeOnly(libs.slf4j.simple)
+
     testImplementation(kotlin("test"))
 }
 
