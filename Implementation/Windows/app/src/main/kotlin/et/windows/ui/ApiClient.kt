@@ -1,7 +1,6 @@
 package et.windows.ui
 
 import et.windows.server.AddCategoryRequest
-import et.windows.server.AddMemberRequest
 import et.windows.server.AddTripExpenseRequest
 import et.windows.server.CategoryDto
 import et.windows.server.CreateHouseholdRequest
@@ -9,7 +8,6 @@ import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
-import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
@@ -67,12 +65,6 @@ class ApiClient(private val baseUrl: String) {
     suspend fun archiveCategory(householdId: String, categoryId: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/categories/$categoryId")
     }
-
-    suspend fun addMember(householdId: String, displayName: String): MemberDto =
-        client.post("$baseUrl/api/v1/households/$householdId/members") {
-            contentType(ContentType.Application.Json)
-            setBody(AddMemberRequest(displayName))
-        }.body()
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
