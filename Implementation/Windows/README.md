@@ -119,10 +119,18 @@ directly verified here each pass — the window itself checks out fine).
 
 **Schema note:** the `household` table gained two nullable columns
 (`defaultBudgetAmountMinorUnits`, `defaultBudgetCurrency`). `WindowsDatabase.Schema.create`
-only runs against a brand-new SQLite file, so an existing `~/.kharcha/data.db`
-from before this change won't have them — delete `~/.kharcha` (or just the
-`data.db` file) to pick up the new schema. Fine for v0 with no real
-migration story yet; flag if this becomes disruptive.
+only runs against a brand-new SQLite file, so an existing `data.db` from
+before this change won't have them, and every query touching `household`
+fails with `no such column: household.defaultBudgetAmountMinorUnits`
+(visible in the console now that `slf4j-simple` is wired in — previously
+silent, see below). Delete the whole data directory to pick up the new
+schema — **its location is OS-specific and not literally `~/.kharcha` on
+Windows**: it's `System.getProperty("user.home")` + `/.kharcha`, which on
+native Windows resolves to `%USERPROFILE%\.kharcha`
+(`C:\Users\<you>\.kharcha`), a different folder from any WSL/Linux home.
+In PowerShell: `Remove-Item -Recurse -Force "$env:USERPROFILE\.kharcha"`.
+Fine for v0 with no real migration story yet; flag if this becomes
+disruptive.
 
 ## Building a setup.exe installer
 
