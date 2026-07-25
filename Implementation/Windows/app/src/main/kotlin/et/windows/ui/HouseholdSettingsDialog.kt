@@ -133,14 +133,16 @@ fun HouseholdSettingsDialog(
     )
 
     if (showAddMember) {
+        val existingIds = remember { members.map { it.id }.toSet() }
         AddPersonDialog(
             title = "Add Member",
-            fieldLabel = "Member name",
             qrPayload = encodeJoinInvite(joinInviteForHousehold(householdId, currentName)),
             onDismiss = { showAddMember = false },
-            onAdd = { memberName ->
-                api.addMember(householdId, memberName)
-                reloadMembers()
+            onPollForJoin = {
+                val fresh = api.household(householdId).members
+                val newMember = fresh.find { it.id !in existingIds }
+                if (newMember != null) members = fresh
+                newMember?.displayName
             },
         )
     }

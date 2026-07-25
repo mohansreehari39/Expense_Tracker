@@ -9,6 +9,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import et.core.model.HlcClock
+import et.windows.db.PairedDeviceStore
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
 import et.windows.db.openDatabase
@@ -37,7 +38,7 @@ fun main() {
     val deviceId = loadOrCreateDeviceId()
     val operationStore = SqlDelightOperationStore(db)
     val repository = SqlDelightRepository(db, operationStore, deviceId, HlcClock(deviceId))
-    val services = AppServices(repository, deviceId)
+    val services = AppServices(repository, deviceId, PairedDeviceStore(db))
 
     val server = startServer(services, DEFAULT_PORT)
     val lanAdvertisement = advertiseOnLan(DEFAULT_PORT)

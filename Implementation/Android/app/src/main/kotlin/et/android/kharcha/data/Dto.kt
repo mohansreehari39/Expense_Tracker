@@ -152,3 +152,12 @@ data class AddTripExpenseRequest(
     val occurredAt: Long,
     val note: String = "",
 )
+
+@Serializable
+data class RegisterDeviceRequest(val id: String, val label: String)
+
+@Serializable
+data class PairDeviceResponse(val id: String, val label: String, val pairingKey: String, val pairedAt: Long, val lastSeenAt: Long)
+
+@Serializable
+data class HeartbeatDeviceRequest(val pairingKey: String, val label: String)

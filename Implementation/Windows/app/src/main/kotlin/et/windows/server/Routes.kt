@@ -92,6 +92,41 @@ fun Route.apiV1(services: AppServices) {
     route("/api/v1") {
         households(services)
         trips(services)
+        devices(services)
+    }
+}
+
+private fun Route.devices(services: AppServices) {
+    route("/devices") {
+        get {
+            call.respond(services.pairedDevices.all().map { it.toDto() })
+        }
+        // Pairing — only ever called right after scanning "Add Android
+        // Device" on this machine's own screen. Always mints a fresh
+        // pairingKey, invalidating whatever key (if any) that deviceId had
+        // before, so re-pairing after a removal is exactly how a phone
+        // gets back in — not a silent heartbeat.
+        post {
+            val request = call.receive<RegisterDeviceRequest>()
+            val device = services.pairedDevices.pair(request.id, request.label, Clock.System.now().toEpochMilliseconds())
+            call.respond(HttpStatusCode.Created, device.toPairResponse())
+        }
+        // Heartbeat — called unattended every ~15s by the phone's
+        // background sync loop. Must present the pairingKey issued at pair
+        // time; rejected (410) if the device was removed or the key is
+        // stale, which is what makes removal (or re-pairing) actually stick.
+        post("/{id}/heartbeat") {
+            val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val request = call.receive<HeartbeatDeviceRequest>()
+            val device = services.pairedDevices.heartbeat(id, request.pairingKey, request.label, Clock.System.now().toEpochMilliseconds())
+                ?: return@post call.respond(HttpStatusCode.Gone)
+            call.respond(device.toDto())
+        }
+        delete("/{id}") {
+            val id = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+            services.pairedDevices.remove(id)
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
 }
 

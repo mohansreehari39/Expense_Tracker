@@ -106,6 +106,14 @@ What works right now:
   household's **month-specific override**, which is inherently tied to
   whichever month is currently showing, so its ✏️ edit affordance lives
   next to the monthly bar in the main content instead of the sidebar.
+- **Add Android Device** (sidebar, below the household/activity lists):
+  device-level pairing, separate from joining any specific household or
+  activity — opens `PairAndroidDeviceDialog.kt`, showing a QR
+  (`joinInviteForServerPairing()` in `JoinInvite.kt`, `kind = "server"`)
+  that the Android app scans via its own "Connect to Server" action. This
+  only registers "this phone talks to this server" for background sync;
+  it doesn't join or share any household/activity data by itself — that's
+  still the separate per-household/activity "+ Add" QR described above.
 - The selected item's main content is a **Dashboard** plus an
   **Analytics** section. For households, the dashboard is
   `MonthlyBudgetChart.kt`: a full-length monthly progress bar with that
@@ -234,10 +242,15 @@ proper installer.
   `_expensetracker._tcp.local.` the design doc anticipated) purely so the
   Android app can find its current address without a manual IP — a much
   lighter thing than the full sync protocol.
-- Real QR device pairing — the Add Member/Participant QR is a placeholder
-  payload (see above), not the `Core/sync/Pairing.kt` handshake. The
-  Android app does scan it now (that app exists as of this pass), but only
-  to connect + deep-link, not to actually pair/sync anything.
+- Real QR device pairing — both the Add Member/Participant QR and the Add
+  Android Device QR are the same placeholder `JoinInvitePayload` (see
+  above), not the `Core/sync/Pairing.kt` handshake. The Android app now
+  does act on them for real (joining pulls a household/activity's data
+  into a local copy and starts background sync; pairing registers the
+  server for that sync) — see `Implementation/Android/README.md` — just
+  not with the real crypto handshake yet.
+- Android↔Android sync — only Android↔(paired Windows) sync exists; two
+  phones cannot yet sync with each other directly.
 - System tray / start-on-login.
 - `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.

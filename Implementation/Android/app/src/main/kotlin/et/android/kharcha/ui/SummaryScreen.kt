@@ -22,48 +22,69 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.ApiClient
-import et.android.kharcha.data.ConnectionStore
-import et.android.kharcha.data.HouseholdDto
-import et.android.kharcha.data.MoneyDto
-import et.android.kharcha.data.TripDto
+import et.android.kharcha.data.BudgetEvaluation
+import et.android.kharcha.data.BudgetMath
+import et.android.kharcha.data.LocalRepository
+import et.android.kharcha.data.local.ActivityEntity
+import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
+import java.time.LocalDate
 
 /**
  * Landing page — nothing is selected yet, so this shows each household's
  * monthly budget at a glance plus a rollup of what you're owed / you owe
  * across activities, rather than any single household/activity's detail.
+ * Everything here is computed from local Room data (see LocalRepository) —
+ * a household/activity that's never touched a server shows up the same way.
  */
 @Composable
 fun SummaryScreen(
-    api: ApiClient,
-    store: ConnectionStore,
-    households: List<HouseholdDto>,
-    trips: List<TripDto>,
+    repo: LocalRepository,
+    households: List<HouseholdEntity>,
+    activities: List<ActivityEntity>,
     onOpenHousehold: (String) -> Unit,
     onOpenActivity: (String) -> Unit,
 ) {
+    var monthEvaluations by remember { mutableStateOf<Map<String, BudgetEvaluation?>>(emptyMap()) }
     var owedToYou by remember { mutableStateOf(0L) }
     var youOwe by remember { mutableStateOf(0L) }
     var owedCurrency by remember { mutableStateOf("INR") }
-    var perTripBalance by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var perActivityBalance by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
 
-    LaunchedEffect(trips) {
+    LaunchedEffect(households) {
+        val today = LocalDate.now()
+        monthEvaluations = households.associate { household ->
+            val budget = household.defaultBudgetMinorUnits
+            val evaluation = if (budget == null) {
+                null
+            } else {
+                val spent = repo.householdExpenses(household.id)
+                    .filter { expense ->
+                        val date = java.time.Instant.ofEpochMilli(expense.occurredAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        date.monthValue == today.monthValue && date.year == today.year
+                    }
+                    .sumOf { it.amountMinorUnits }
+                BudgetMath.evaluateBudget(budget, spent, household.currency)
+            }
+            household.id to evaluation
+        }
+    }
+
+    LaunchedEffect(activities) {
         var owed = 0L
         var owe = 0L
         val breakdown = mutableMapOf<String, Long>()
-        for (trip in trips) {
-            val myParticipantId = store.myParticipantId(trip.id) ?: continue
-            val detail = runCatching { api.trip(trip.id) }.getOrNull() ?: continue
-            val balance = detail.balances[myParticipantId]?.minorUnits ?: continue
-            breakdown[trip.id] = balance
-            owedCurrency = detail.trip.budget.currency
+        for (activity in activities) {
+            val myParticipant = repo.myParticipant(activity.id) ?: continue
+            val balance = repo.activityBalances(activity.id)[myParticipant.id] ?: continue
+            breakdown[activity.id] = balance
+            owedCurrency = activity.currency
             if (balance > 0) owed += balance else owe += -balance
         }
         owedToYou = owed
         youOwe = owe
-        perTripBalance = breakdown
+        perActivityBalance = breakdown
     }
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
@@ -85,7 +106,7 @@ fun SummaryScreen(
                 Column(Modifier.padding(16.dp)) {
                     Text(household.name, style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(8.dp))
-                    BudgetBar("This month", household.monthEvaluation)
+                    BudgetBar("This month", monthEvaluations[household.id])
                 }
             }
         }
@@ -100,11 +121,11 @@ fun SummaryScreen(
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column {
                                 Text("You're owed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(formatMoney(MoneyDto(owedToYou, owedCurrency)), color = Teal, style = MaterialTheme.typography.titleMedium)
+                                Text(formatMoney(owedToYou, owedCurrency), color = Teal, style = MaterialTheme.typography.titleMedium)
                             }
                             Column {
                                 Text("You owe", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(formatMoney(MoneyDto(youOwe, owedCurrency)), color = Rose, style = MaterialTheme.typography.titleMedium)
+                                Text(formatMoney(youOwe, owedCurrency), color = Rose, style = MaterialTheme.typography.titleMedium)
                             }
                         }
                     }
@@ -113,16 +134,26 @@ fun SummaryScreen(
             }
         }
 
-        items(trips) { trip ->
-            Card(onClick = { onOpenActivity(trip.id) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        if (activities.isEmpty()) {
+            item {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "No activities yet — add one from the drawer.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        items(activities) { activity ->
+            Card(onClick = { onOpenActivity(activity.id) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text(trip.name, style = MaterialTheme.typography.titleSmall)
-                    val balance = perTripBalance[trip.id]
+                    Text(activity.name, style = MaterialTheme.typography.titleSmall)
+                    val balance = perActivityBalance[activity.id]
                     val caption = when {
                         balance == null -> "Tap to set up who you are in this activity"
                         balance == 0L -> "You're settled up"
-                        balance > 0 -> "You're owed ${formatMoney(MoneyDto(balance, owedCurrency))}"
-                        else -> "You owe ${formatMoney(MoneyDto(-balance, owedCurrency))}"
+                        balance > 0 -> "You're owed ${formatMoney(balance, owedCurrency)}"
+                        else -> "You owe ${formatMoney(-balance, owedCurrency)}"
                     }
                     Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

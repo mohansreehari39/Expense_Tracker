@@ -23,6 +23,9 @@ import kotlinx.serialization.json.Json
 class ApiClient(private val baseUrl: String) {
     private val client = HttpClient(Android) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        // Explicit rather than relying on the engine default — DeviceRevokedException
+        // detection in SyncEngine depends on non-2xx responses actually throwing.
+        expectSuccess = true
     }
 
     // -- Households -----------------------------------------------------------
@@ -131,5 +134,27 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun deleteTripExpense(tripId: String, expenseId: String) {
         client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
+    }
+
+    // -- Device pairing -----------------------------------------------------
+
+    /** Called only right after scanning "Add Android Device" — mints a fresh pairingKey server-side, invalidating any previous one for this deviceId. */
+    suspend fun pairDevice(id: String, label: String): PairDeviceResponse =
+        client.post("$baseUrl/api/v1/devices") {
+            contentType(ContentType.Application.Json)
+            setBody(RegisterDeviceRequest(id, label))
+        }.body()
+
+    /**
+     * Presents the pairingKey issued at pair time. Throws [io.ktor.client.plugins.ClientRequestException]
+     * with a 410 status if the server has forgotten this device (removed, or
+     * re-paired elsewhere with a new key) — callers should treat that as
+     * "forget this pairing locally", not a transient network failure.
+     */
+    suspend fun heartbeatDevice(id: String, pairingKey: String, label: String) {
+        client.post("$baseUrl/api/v1/devices/$id/heartbeat") {
+            contentType(ContentType.Application.Json)
+            setBody(HeartbeatDeviceRequest(pairingKey, label))
+        }
     }
 }

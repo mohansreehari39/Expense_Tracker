@@ -19,20 +19,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.TripExpenseDto
-import et.android.kharcha.data.TripParticipantDto
+import et.android.kharcha.data.local.ActivityExpenseEntity
+import et.android.kharcha.data.local.ParticipantEntity
 
 /** v0: always splits equally among every participant. Also used to edit, when [expenseToEdit] is non-null. */
 @Composable
 fun AddTripExpenseDialog(
-    participants: List<TripParticipantDto>,
+    participants: List<ParticipantEntity>,
     currency: String,
     defaultParticipantId: String?,
-    expenseToEdit: TripExpenseDto? = null,
+    expenseToEdit: ActivityExpenseEntity? = null,
     onDismiss: () -> Unit,
     onSubmit: (amountMinorUnits: Long, paidByParticipantId: String, occurredAt: Long, note: String) -> Unit,
 ) {
-    var amountText by remember { mutableStateOf(expenseToEdit?.let { (it.amount.minorUnits / 100.0).toString() } ?: "") }
+    var amountText by remember { mutableStateOf(expenseToEdit?.let { (it.amountMinorUnits / 100.0).toString() } ?: "") }
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
     var paidBy by remember { mutableStateOf(expenseToEdit?.paidByParticipantId ?: defaultParticipantId ?: participants.firstOrNull()?.id) }

@@ -8,10 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,28 +29,35 @@ private const val POLL_INTERVAL_MS = 1500L
 private const val AUTO_CLOSE_DELAY_MS = 1200L
 
 /**
- * Shown from "+ Add" in Household/Activity settings — QR-only, scanned by
- * the Kharcha Android app's "Join Household/Activity" flow (see
- * SyncEngine.joinHousehold/joinActivity). Polls [onPollForJoin] while open
- * so the user sees the moment someone actually joins, rather than closing
- * the dialog not knowing whether the scan worked. There's no manual
- * add-by-name fallback — joining is QR-only.
+ * Device-level pairing — separate from joining any specific household or
+ * activity (see JoinInvite.kt's "server" kind). Scanning this QR from the
+ * Android app just registers "this phone talks to this Windows instance";
+ * it doesn't create or link any data by itself. Households/activities are
+ * joined afterward with their own QR from their own Settings dialog.
+ *
+ * Polls [ApiClient.devices] while open so the user sees the moment the
+ * phone actually connects, rather than closing the dialog not knowing
+ * whether the scan worked.
  */
 @Composable
-fun AddPersonDialog(title: String, qrPayload: String, onDismiss: () -> Unit, onPollForJoin: suspend () -> String?) {
-    var joinedName by remember { mutableStateOf<String?>(null) }
+fun PairAndroidDeviceDialog(api: ApiClient, onDismiss: () -> Unit) {
+    var connectedLabel by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        while (isActive && joinedName == null) {
+        val before = runCatching { api.devices() }.getOrDefault(emptyList())
+        val beforeLastSeen = before.associate { it.id to it.lastSeenAt }
+        while (isActive && connectedLabel == null) {
             delay(POLL_INTERVAL_MS)
-            joinedName = onPollForJoin()
+            val current = runCatching { api.devices() }.getOrNull() ?: continue
+            val newlySeen = current.find { (beforeLastSeen[it.id] ?: 0L) < it.lastSeenAt }
+            if (newlySeen != null) connectedLabel = newlySeen.label
         }
     }
 
     // Briefly show the confirmation, then close on its own — no need to make
-    // the user click "Done" once the person has already joined.
-    LaunchedEffect(joinedName) {
-        if (joinedName != null) {
+    // the user click "Done" once the connection is already established.
+    LaunchedEffect(connectedLabel) {
+        if (connectedLabel != null) {
             delay(AUTO_CLOSE_DELAY_MS)
             onDismiss()
         }
@@ -58,18 +65,18 @@ fun AddPersonDialog(title: String, qrPayload: String, onDismiss: () -> Unit, onP
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text("Add Android Device") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                QrCodeImage(qrPayload, modifier = Modifier.size(180.dp))
+                QrCodeImage(encodeJoinInvite(joinInviteForServerPairing()), modifier = Modifier.size(200.dp))
                 Spacer(Modifier.height(12.dp))
-                val name = joinedName
-                if (name == null) {
+                val label = connectedLabel
+                if (label == null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Scan with the Kharcha Android app to join.",
+                            "In the Kharcha Android app, choose \"Connect to Server\" and scan this code.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -77,7 +84,7 @@ fun AddPersonDialog(title: String, qrPayload: String, onDismiss: () -> Unit, onP
                     }
                 } else {
                     Text(
-                        "✓ $name joined",
+                        "✓ Connected: $label",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Teal,
                         textAlign = TextAlign.Center,
@@ -85,6 +92,6 @@ fun AddPersonDialog(title: String, qrPayload: String, onDismiss: () -> Unit, onP
                 }
             }
         },
-        confirmButton = { Button(onClick = onDismiss) { Text("Done") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
     )
 }

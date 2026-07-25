@@ -24,75 +24,74 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.ApiClient
-import et.android.kharcha.data.CategoryDto
-import et.android.kharcha.data.ConnectionStore
-import et.android.kharcha.data.HouseholdExpenseDto
-import et.android.kharcha.data.MemberDto
-import et.android.kharcha.data.MonthBudgetResponse
-import et.android.kharcha.data.RecordExpenseRequest
+import et.android.kharcha.data.BudgetMath
+import et.android.kharcha.data.DateRange
+import et.android.kharcha.data.LocalRepository
+import et.android.kharcha.data.local.HouseholdEntity
+import et.android.kharcha.data.local.HouseholdExpenseEntity
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+
+private fun occurredOn(occurredAt: Long): LocalDate =
+    Instant.ofEpochMilli(occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
+
+private fun inRange(occurredAt: Long, range: DateRange): Boolean {
+    val date = occurredOn(occurredAt)
+    return !date.isBefore(range.start) && !date.isAfter(range.endInclusive)
+}
 
 @Composable
-fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String, onChanged: () -> Unit) {
-    var householdName by remember { mutableStateOf("") }
-    var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
-    var members by remember { mutableStateOf<List<MemberDto>>(emptyList()) }
-    var monthBudget by remember { mutableStateOf<MonthBudgetResponse?>(null) }
-    var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
+fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) {
+    var household by remember { mutableStateOf<HouseholdEntity?>(null) }
+    val categories by repo.observeCategories(householdId).collectAsState(initial = emptyList())
+    val members by repo.observeMembers(householdId).collectAsState(initial = emptyList())
+    val expenses by repo.observeHouseholdExpenses(householdId).collectAsState(initial = emptyList())
     var weekIndex by remember { mutableStateOf(0) }
-    var myMemberId by remember { mutableStateOf<String?>(null) }
     var showAddExpense by remember { mutableStateOf(false) }
-    var expenseToEdit by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
-    var expenseToDelete by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var everLoaded by remember { mutableStateOf(false) }
+    var expenseToEdit by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
+    var expenseToDelete by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
 
-    suspend fun reload() {
-        try {
-            val response = api.household(householdId)
-            householdName = response.household.name
-            categories = response.categories
-            members = response.members
-            val budget = api.monthBudget(householdId, today.year, today.monthValue)
-            monthBudget = budget
-            expenses = api.expenses(householdId, today.year, today.monthValue)
-            val currentWeekIndex = budget.weeks.indexOfFirst {
-                val start = LocalDate.parse(it.weekStart)
-                val end = LocalDate.parse(it.weekEnd)
-                !today.isBefore(start) && !today.isAfter(end)
-            }
-            weekIndex = if (currentWeekIndex >= 0) currentWeekIndex else 0
-            myMemberId = store.myMemberId(householdId)
-            loadError = null
-            everLoaded = true
-        } catch (e: Exception) {
-            loadError = e.message ?: e::class.simpleName ?: "Couldn't reach the server"
+    LaunchedEffect(householdId) {
+        household = repo.household(householdId)
+        repo.ensureMyMembership(householdId, myName)
+    }
+
+    val currentHousehold = household
+    val currency = currentHousehold?.currency ?: "INR"
+    val myMemberId = members.find { it.isMe }?.id
+
+    val monthExpenses = expenses.filter { occurredOn(it.occurredAt).monthValue == today.monthValue && occurredOn(it.occurredAt).year == today.year }
+    val monthEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let {
+        BudgetMath.evaluateBudget(it, monthExpenses.sumOf { e -> e.amountMinorUnits }, currency)
+    }
+
+    val weeks = remember(today) { BudgetMath.weeksInMonth(today.year, today.monthValue) }
+    LaunchedEffect(weeks) {
+        val currentIndex = weeks.indexOfFirst { !today.isBefore(it.start) && !today.isAfter(it.endInclusive) }
+        weekIndex = if (currentIndex >= 0) currentIndex else 0
+    }
+    val currentWeek = weeks.getOrNull(weekIndex)
+    val weekEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
+        currentWeek?.let { week ->
+            val allocated = BudgetMath.weekAllocation(budget, today.year, today.monthValue, week)
+            val spent = monthExpenses.filter { inRange(it.occurredAt, week) }.sumOf { it.amountMinorUnits }
+            BudgetMath.evaluateBudget(allocated, spent, currency)
         }
     }
-
-    LaunchedEffect(householdId) { reload() }
-
-    if (!everLoaded && loadError != null) {
-        ConnectionErrorScreen(message = loadError!!, onRetry = { scope.launch { reload() } })
-        return
-    }
-
-    val currency = monthBudget?.effectiveBudget?.currency ?: monthBudget?.defaultBudget?.currency ?: "INR"
-    val weeks = monthBudget?.weeks.orEmpty()
-    val currentWeek = weeks.getOrNull(weekIndex)
 
     Scaffold(
         floatingActionButton = {
@@ -101,20 +100,20 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
             item {
-                Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
+                Text(currentHousehold?.name ?: "Household", style = MaterialTheme.typography.headlineSmall)
                 Spacer(Modifier.height(12.dp))
 
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
-                        BudgetBar("This month", monthBudget?.monthlyEvaluation)
+                        BudgetBar("This month", monthEvaluation)
                         Spacer(Modifier.height(16.dp))
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { if (weekIndex > 0) weekIndex-- }, enabled = weekIndex > 0) {
                                 Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous week")
                             }
                             BudgetBar(
-                                currentWeek?.let { "Week of ${it.weekStart}" } ?: "This week",
-                                currentWeek?.evaluation,
+                                currentWeek?.let { "Week of ${it.start}" } ?: "This week",
+                                weekEvaluation,
                                 modifier = Modifier.weight(1f),
                             )
                             IconButton(onClick = { if (weekIndex < weeks.size - 1) weekIndex++ }, enabled = weekIndex < weeks.size - 1) {
@@ -127,12 +126,12 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
                 Spacer(Modifier.height(24.dp))
                 Text("Recent Expenses", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                if (expenses.isEmpty()) {
+                if (monthExpenses.isEmpty()) {
                     Text("No expenses recorded this month yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
 
-            items(expenses) { expense ->
+            items(monthExpenses.sortedByDescending { it.occurredAt }) { expense ->
                 val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
                 val paidByName = members.find { it.id == expense.paidByMemberId }?.displayName ?: expense.paidByMemberId
                 Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -149,7 +148,7 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
                             }
                         }
                         Column(horizontalAlignment = Alignment.End) {
-                            Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)
+                            Text(formatMoney(expense.amountMinorUnits, expense.currency), style = MaterialTheme.typography.titleMedium)
                             Row {
                                 TextButton(onClick = { expenseToEdit = expense }) { Text("Edit") }
                                 TextButton(onClick = { expenseToDelete = expense }) { Text("Delete") }
@@ -167,13 +166,12 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
             members = members,
             currency = currency,
             defaultMemberId = myMemberId,
+            onCreateCategory = { name -> repo.addCategory(householdId, name) },
             onDismiss = { showAddExpense = false },
-            onSubmit = { request ->
+            onSubmit = { categoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
                 scope.launch {
-                    api.recordExpense(householdId, request)
+                    repo.recordHouseholdExpense(householdId, categoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note)
                     showAddExpense = false
-                    reload()
-                    onChanged()
                 }
             },
         )
@@ -185,13 +183,21 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
             members = members,
             currency = currency,
             defaultMemberId = myMemberId,
+            onCreateCategory = { name -> repo.addCategory(householdId, name) },
             expenseToEdit = expense,
             onDismiss = { expenseToEdit = null },
-            onSubmit = { request ->
+            onSubmit = { categoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
                 scope.launch {
-                    api.updateExpense(householdId, expense.id, request)
+                    repo.updateHouseholdExpense(
+                        expense.copy(
+                            categoryId = categoryId,
+                            amountMinorUnits = amountMinorUnits,
+                            paidByMemberId = paidByMemberId,
+                            occurredAt = occurredAt,
+                            note = note,
+                        ),
+                    )
                     expenseToEdit = null
-                    reload()
                 }
             },
         )
@@ -200,14 +206,13 @@ fun HouseholdScreen(api: ApiClient, store: ConnectionStore, householdId: String,
     expenseToDelete?.let { expense ->
         ConfirmDialog(
             title = "Delete expense?",
-            message = "This removes the ${formatMoney(expense.amount)} expense and can't be undone.",
+            message = "This removes the ${formatMoney(expense.amountMinorUnits, expense.currency)} expense and can't be undone.",
             confirmLabel = "Delete",
             onDismiss = { expenseToDelete = null },
             onConfirm = {
                 scope.launch {
-                    api.deleteExpense(householdId, expense.id)
+                    repo.deleteHouseholdExpense(expense)
                     expenseToDelete = null
-                    reload()
                 }
             },
         )

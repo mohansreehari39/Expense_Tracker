@@ -18,7 +18,7 @@ import kotlinx.serialization.json.Json
  */
 @Serializable
 data class JoinInvitePayload(
-    val kind: String, // "household" | "activity"
+    val kind: String, // "household" | "activity" | "server"
     val id: String,
     val name: String,
     val host: String,
@@ -34,3 +34,10 @@ fun joinInviteForHousehold(householdId: String, householdName: String) =
 
 fun joinInviteForTrip(tripId: String, tripName: String) =
     JoinInvitePayload(kind = "activity", id = tripId, name = tripName, host = localNetworkAddress(), port = DEFAULT_PORT)
+
+/**
+ * Device-level pairing QR (see PairAndroidDeviceDialog.kt) — Android keys
+ * a paired server by host:port, so [id]/[name] here are cosmetic only.
+ */
+fun joinInviteForServerPairing() =
+    JoinInvitePayload(kind = "server", id = "server", name = "Kharcha", host = localNetworkAddress(), port = DEFAULT_PORT)

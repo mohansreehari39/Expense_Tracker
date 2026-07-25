@@ -241,3 +241,33 @@ CREATE TABLE device (
 
 selectDevices:
 SELECT * FROM device;
+
+-- A phone that scanned the "Add Android Device" QR (device-level pairing,
+-- not tied to any specific household/activity — see JoinInvite.kt
+-- kind="server"). Separate from `device` above, which is for the real
+-- per-household crypto handshake in Core/sync/Pairing.kt and isn't wired
+-- up yet; this is the simpler placeholder pairing that IS wired up.
+-- pairingKey is a server-issued token, re-minted every time this device
+-- pairs (or re-pairs). Heartbeats must present the current key; removing
+-- the row (or re-pairing, which mints a new key) makes any previously
+-- issued key invalid, so a removed/revoked device can't silently keep
+-- syncing just because it still remembers its old deviceId.
+CREATE TABLE pairedDevice (
+    id TEXT NOT NULL PRIMARY KEY,
+    label TEXT NOT NULL,
+    pairingKey TEXT NOT NULL,
+    pairedAt INTEGER NOT NULL,
+    lastSeenAt INTEGER NOT NULL
+);
+
+upsertPairedDevice:
+INSERT OR REPLACE INTO pairedDevice (id, label, pairingKey, pairedAt, lastSeenAt) VALUES (?, ?, ?, ?, ?);
+
+selectPairedDevices:
+SELECT * FROM pairedDevice ORDER BY pairedAt;
+
+selectPairedDeviceById:
+SELECT * FROM pairedDevice WHERE id = ?;
+
+deletePairedDevice:
+DELETE FROM pairedDevice WHERE id = ?;

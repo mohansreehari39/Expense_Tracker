@@ -50,9 +50,25 @@ private fun migrateExistingDatabase(url: String) {
                 )
                 """.trimIndent(),
             )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pairedDevice (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    label TEXT NOT NULL,
+                    pairingKey TEXT NOT NULL DEFAULT '',
+                    pairedAt INTEGER NOT NULL,
+                    lastSeenAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
         }
         addColumnIfMissing(connection, "member", "isArchived", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(connection, "tripParticipant", "isArchived", "INTEGER NOT NULL DEFAULT 0")
+        // Existing pairedDevice rows from before pairingKey existed get ''
+        // (never matches a real client-held key), which is correct: those
+        // stale pairings should require a fresh "Add Android Device" scan
+        // rather than silently keep heartbeating.
+        addColumnIfMissing(connection, "pairedDevice", "pairingKey", "TEXT NOT NULL DEFAULT ''")
     }
 }
 
