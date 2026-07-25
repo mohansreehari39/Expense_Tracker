@@ -47,10 +47,10 @@ class ApiClient(private val baseUrl: String) {
     suspend fun household(householdId: String): HouseholdResponse =
         client.get("$baseUrl/api/v1/households/$householdId").body()
 
-    suspend fun updateHousehold(householdId: String, name: String): HouseholdDto =
+    suspend fun updateHousehold(householdId: String, request: UpdateHouseholdRequest): HouseholdDto =
         client.put("$baseUrl/api/v1/households/$householdId") {
             contentType(ContentType.Application.Json)
-            setBody(UpdateHouseholdRequest(name))
+            setBody(request)
         }.body()
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =

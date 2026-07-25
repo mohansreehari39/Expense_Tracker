@@ -38,7 +38,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
+import et.windows.server.MoneyDto
 import et.windows.server.TripDto
+import et.windows.server.UpdateHouseholdRequest
 import et.windows.server.UpdateTripRequest
 import kotlinx.coroutines.launch
 
@@ -49,7 +51,7 @@ sealed interface Selection {
 }
 
 private sealed interface SettingsTarget {
-    data class HouseholdTarget(val id: String, val name: String) : SettingsTarget
+    data class HouseholdTarget(val id: String, val name: String, val defaultBudget: MoneyDto?) : SettingsTarget
     data class TripTarget(val id: String, val name: String, val budgetMinorUnits: Long, val currency: String) : SettingsTarget
 }
 
@@ -93,7 +95,9 @@ fun Sidebar(
                 statusColor = household.weekEvaluation?.let { statusColor(it.status) },
                 selected = selection == Selection.HouseholdSel(household.id),
                 onClick = { onSelect(Selection.HouseholdSel(household.id)) },
-                onSettings = { settingsTarget = SettingsTarget.HouseholdTarget(household.id, household.name) },
+                onSettings = {
+                    settingsTarget = SettingsTarget.HouseholdTarget(household.id, household.name, household.defaultMonthlyBudget)
+                },
             )
         }
         if (households.isEmpty()) SidebarEmptyHint("No households yet")
@@ -172,10 +176,11 @@ fun Sidebar(
     when (val target = settingsTarget) {
         is SettingsTarget.HouseholdTarget -> HouseholdSettingsDialog(
             currentName = target.name,
+            currentDefaultBudget = target.defaultBudget,
             onDismiss = { settingsTarget = null },
-            onSave = { newName ->
+            onSave = { newName, newDefaultBudget ->
                 scope.launch {
-                    api.updateHousehold(target.id, newName)
+                    api.updateHousehold(target.id, UpdateHouseholdRequest(newName, newDefaultBudget))
                     settingsTarget = null
                     onChanged()
                 }

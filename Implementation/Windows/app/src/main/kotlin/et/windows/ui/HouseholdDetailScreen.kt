@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,29 +27,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.CategoryDto
 import et.windows.server.HouseholdExpenseDto
+import et.windows.server.MonthBudgetResponse
+import et.windows.server.MoneyDto
 import et.windows.server.SetBudgetRequest
-import et.windows.server.WeekEvaluationDto
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 
 @Composable
 fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: Int) {
     var householdName by remember { mutableStateOf("") }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
-    var weeks by remember { mutableStateOf<List<WeekEvaluationDto>>(emptyList()) }
+    var monthBudget by remember { mutableStateOf<MonthBudgetResponse?>(null) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
-    var showSetBudget by remember { mutableStateOf(false) }
+    var showMonthlyOverride by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
+    val monthLabel = remember(today) { "${today.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${today.year}" }
 
     suspend fun reload() {
         try {
             val response = api.household(householdId)
             householdName = response.household.name
             categories = response.categories
-            weeks = api.monthBudget(householdId, today.year, today.monthValue).weeks
+            monthBudget = api.monthBudget(householdId, today.year, today.monthValue)
             expenses = api.expenses(householdId, today.year, today.monthValue)
             error = null
         } catch (e: Exception) {
@@ -60,12 +63,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
 
     LaunchedEffect(householdId, refreshSignal) { reload() }
 
-    val currentWeek = weeks.find {
-        val start = LocalDate.parse(it.weekStart)
-        val end = LocalDate.parse(it.weekEnd)
-        !today.isBefore(start) && !today.isAfter(end)
-    }
-    val currency = currentWeek?.evaluation?.allocated?.currency ?: "INR"
+    val currency = monthBudget?.effectiveBudget?.currency ?: monthBudget?.defaultBudget?.currency ?: "INR"
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -81,20 +79,28 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             item {
                 error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
 
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("This Week", style = MaterialTheme.typography.titleMedium)
-                    OutlinedButton(onClick = { showSetBudget = true }) { Text(if (currentWeek == null) "Set Budget" else "Update Budget") }
-                }
-                Spacer(Modifier.height(8.dp))
-                if (currentWeek != null) {
-                    BudgetStatusBanner(currentWeek.evaluation)
+                val budget = monthBudget
+                val monthlyEvaluation = budget?.monthlyEvaluation
+                if (budget != null && monthlyEvaluation != null) {
+                    MonthlyBudgetChart(
+                        monthLabel = monthLabel,
+                        monthlyEvaluation = monthlyEvaluation,
+                        weeks = budget.weeks,
+                        onEditClick = { showMonthlyOverride = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 } else {
+                    Text("Monthly Budget", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
                     Card(Modifier.fillMaxWidth()) {
-                        Text(
-                            "No budget set for this month yet.",
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "No budget set for $monthLabel yet.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Button(onClick = { showMonthlyOverride = true }) { Text("Set Monthly Budget") }
+                        }
                     }
                 }
 
@@ -113,7 +119,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                                 label = name,
                                 value = total,
                                 color = chartPalette[index % chartPalette.size],
-                                valueText = formatMoney(et.windows.server.MoneyDto(total, currency)),
+                                valueText = formatMoney(MoneyDto(total, currency)),
                             )
                         }
                         SimpleBarChart(entries, modifier = Modifier.fillMaxWidth().padding(16.dp))
@@ -160,14 +166,17 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
         )
     }
 
-    if (showSetBudget) {
-        SetBudgetDialog(
+    if (showMonthlyOverride) {
+        MonthlyBudgetOverrideDialog(
+            monthLabel = monthLabel,
             currency = currency,
-            onDismiss = { showSetBudget = false },
-            onSubmit = { amountMinorUnits, curr ->
+            currentEffectiveAmountMinorUnits = monthBudget?.effectiveBudget?.minorUnits,
+            isOverride = monthBudget?.isOverride ?: false,
+            onDismiss = { showMonthlyOverride = false },
+            onSubmit = { amountMinorUnits ->
                 scope.launch {
-                    api.setBudget(householdId, SetBudgetRequest(today.year, today.monthValue, amountMinorUnits, curr))
-                    showSetBudget = false
+                    api.setBudget(householdId, SetBudgetRequest(today.year, today.monthValue, amountMinorUnits, currency))
+                    showMonthlyOverride = false
                     reload()
                 }
             },

@@ -6,10 +6,17 @@ package et.core.model
  * log (see core-sync), not direct mutation of these instances.
  */
 
+/**
+ * [defaultMonthlyBudget] is the household-level fallback used for any
+ * month that doesn't have its own [MonthlyBudget] override — see
+ * Design/Core/05-domain-logic.md#weekly-budget-derivation. Null means no
+ * default has been set yet, distinct from a $0 budget.
+ */
 data class Household(
     val id: String,
     val name: String,
     val createdAt: Long,
+    val defaultMonthlyBudget: Money? = null,
 )
 
 data class Member(

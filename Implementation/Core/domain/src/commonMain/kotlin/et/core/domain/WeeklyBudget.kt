@@ -47,11 +47,20 @@ object WeeklyBudget {
      * week's days actually fall inside the budgeted month — so a partial
      * week at a month boundary gets a proportionally smaller slice.
      */
-    fun weekAllocation(monthlyBudget: MonthlyBudget, week: DateRange): Money {
-        val month = monthRange(monthlyBudget.year, monthlyBudget.month)
-        val overlapDays = week.overlapDaysWith(month)
-        val allocated = monthlyBudget.totalAmount.minorUnits * overlapDays / month.lengthDays
-        return Money(allocated, monthlyBudget.totalAmount.currency)
+    fun weekAllocation(monthlyBudget: MonthlyBudget, week: DateRange): Money =
+        weekAllocation(monthlyBudget.totalAmount, monthlyBudget.year, monthlyBudget.month, week)
+
+    /**
+     * Same proportional split as the [MonthlyBudget] overload, but works
+     * from a plain [totalAmount] — used when the amount came from
+     * [Household.defaultMonthlyBudget] rather than a stored override for
+     * this specific month.
+     */
+    fun weekAllocation(totalAmount: Money, year: Int, month: Int, week: DateRange): Money {
+        val monthRange = monthRange(year, month)
+        val overlapDays = week.overlapDaysWith(monthRange)
+        val allocated = totalAmount.minorUnits * overlapDays / monthRange.lengthDays
+        return Money(allocated, totalAmount.currency)
     }
 }
 
