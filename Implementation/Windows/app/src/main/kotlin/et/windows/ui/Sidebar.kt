@@ -189,6 +189,8 @@ fun Sidebar(
             },
         )
         is SettingsTarget.TripTarget -> TripSettingsDialog(
+            api = api,
+            tripId = target.id,
             currentName = target.name,
             currentBudgetMinorUnits = target.budgetMinorUnits,
             currency = target.currency,

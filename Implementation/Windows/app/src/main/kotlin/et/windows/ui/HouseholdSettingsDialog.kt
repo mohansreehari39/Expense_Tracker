@@ -24,16 +24,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import et.windows.server.CategoryDto
+import et.windows.server.MemberDto
 import et.windows.server.MoneyDto
 import kotlinx.coroutines.launch
 
 /**
  * Household-level settings: rename, the *default* monthly budget used for
  * any month that doesn't have its own override (set from the household's
- * main content view — see MonthlyBudgetOverrideDialog), and category
- * management (rename is not offered — only add/remove; adding happens
- * inline from the Add Expense dropdown instead, this is just for cleanup).
+ * main content view — see MonthlyBudgetOverrideDialog), and member
+ * management (add/remove). Categories aren't managed here — they're
+ * created inline from the Add Expense dropdown and don't need cleanup.
  */
 @Composable
 fun HouseholdSettingsDialog(
@@ -46,15 +46,18 @@ fun HouseholdSettingsDialog(
 ) {
     var name by remember { mutableStateOf(currentName) }
     var budgetText by remember { mutableStateOf(currentDefaultBudget?.let { (it.minorUnits / 100.0).toString() } ?: "") }
-    var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
+    var members by remember { mutableStateOf<List<MemberDto>>(emptyList()) }
+    var showAddMember by remember { mutableStateOf(false) }
     val currency = currentDefaultBudget?.currency ?: "INR"
     val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val budgetTextIsValid = budgetText.isBlank() || (budgetMinorUnits != null && budgetMinorUnits > 0)
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(householdId) {
-        categories = api.household(householdId).categories
+    suspend fun reloadMembers() {
+        members = api.household(householdId).members
     }
+
+    LaunchedEffect(householdId) { reloadMembers() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -82,30 +85,33 @@ fun HouseholdSettingsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                Text(
-                    "Categories",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                )
-                if (categories.isEmpty()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Members", style = MaterialTheme.typography.titleSmall)
+                    TextButton(onClick = { showAddMember = true }) { Text("+ Add") }
+                }
+                if (members.isEmpty()) {
                     Text(
-                        "None yet — add one from the Add Expense dialog.",
+                        "No members yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
                     Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        categories.forEach { category ->
+                        members.forEach { member ->
                             Row(
                                 Modifier.fillMaxWidth().padding(vertical = 4.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(category.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
                                 TextButton(onClick = {
                                     scope.launch {
-                                        api.archiveCategory(householdId, category.id)
-                                        categories = categories.filterNot { it.id == category.id }
+                                        api.archiveMember(householdId, member.id)
+                                        members = members.filterNot { it.id == member.id }
                                     }
                                 }) { Text("✕ Remove") }
                             }
@@ -125,4 +131,17 @@ fun HouseholdSettingsDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showAddMember) {
+        AddPersonDialog(
+            title = "Add Member",
+            fieldLabel = "Member name",
+            qrPayload = encodeJoinInvite(JoinInvitePayload(kind = "household", id = householdId, name = currentName)),
+            onDismiss = { showAddMember = false },
+            onAdd = { memberName ->
+                api.addMember(householdId, memberName)
+                reloadMembers()
+            },
+        )
+    }
 }

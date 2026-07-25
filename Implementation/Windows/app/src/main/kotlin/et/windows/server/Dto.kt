@@ -137,6 +137,9 @@ data class TripParticipantDto(val id: String, val displayName: String)
 fun TripParticipant.toDto() = TripParticipantDto(id, displayName)
 
 @Serializable
+data class AddTripParticipantRequest(val displayName: String)
+
+@Serializable
 data class TripExpenseDto(
     val id: String,
     val amount: MoneyDto,

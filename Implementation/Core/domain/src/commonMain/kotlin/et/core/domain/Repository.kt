@@ -29,6 +29,8 @@ interface Repository {
     suspend fun saveCategory(category: Category)
 
     suspend fun members(householdId: String): List<Member>
+    /** Unlike [members], includes archived ones — needed to look one up before re-saving it. */
+    suspend fun memberById(memberId: String): Member?
     suspend fun saveMember(member: Member)
 
     suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget?
@@ -45,6 +47,8 @@ interface Repository {
     suspend fun saveTrip(trip: Trip)
 
     suspend fun tripParticipants(tripId: String): List<TripParticipant>
+    /** Unlike [tripParticipants], includes archived ones — needed to look one up before re-saving it. */
+    suspend fun tripParticipantById(participantId: String): TripParticipant?
     suspend fun saveTripParticipant(participant: TripParticipant)
 
     suspend fun tripExpenses(tripId: String): List<TripExpense>

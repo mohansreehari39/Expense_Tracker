@@ -55,9 +55,20 @@ What works right now:
   safety is server-side (`core-domain`'s `AddCategory` reuses an existing
   category if the trimmed, case-insensitive name already matches — so
   "Eating out" reuses "Eating Out" instead of creating a near-duplicate;
-  verified via curl). Categories can be removed (soft-deleted via
-  `ArchiveCategory`, so existing expenses referencing one by id stay
-  intact) from the household's Settings popup.
+  verified via curl). Categories aren't managed from Settings — they're
+  create-only from the Add Expense dropdown, with no removal UI (soft-delete
+  support still exists server-side via `ArchiveCategory` if needed later).
+- **Members** (household) and **participants** (activity) are managed from
+  the household/activity Settings popup: a scrollable list with a "✕
+  Remove" per row (soft-deleted via `ArchiveMember`/`ArchiveTripParticipant`,
+  so past expenses referencing one by id stay intact), plus a "+ Add"
+  button. Add shows a QR code (`QrCodeImage.kt`) alongside a name field —
+  the QR encodes a plain, unauthenticated `JoinInvitePayload`
+  (`JoinInvite.kt`), **not** the real pairing handshake designed in
+  `Core/sync/Pairing.kt`. That two-step exchange needs a second device to
+  show its own pubkey first, so it can't be wired up (or tested) until the
+  Android app exists — the QR here is a placeholder to swap out then. Typing
+  a name and clicking Add works today regardless of the QR.
 - The sidebar and whichever detail screen is open **auto-refresh** every
   4 seconds (`DashboardApp.kt`), so data written by something other than
   this window's own actions — e.g. the `Test/Windows/seed-data` scripts —
@@ -218,11 +229,14 @@ proper installer.
 - The JVM `Transport` (JmDNS + sockets) from
   [Design/Windows/02-transport-implementation.md](../../Design/Windows/02-transport-implementation.md)
   — nothing syncs with another device yet; this app only talks to itself.
+- Real QR device pairing — the Add Member/Participant QR is a placeholder
+  payload (see above), not the `Core/sync/Pairing.kt` handshake; nothing
+  can scan it yet since the Android app doesn't exist.
 - System tray / start-on-login.
 - `%APPDATA%`-based config (currently just `~/.kharcha/`).
 - The thin web dashboard view.
-- Category rename — `HouseholdSettingsDialog`'s category list only
-  supports removing (archiving) one, not editing its name in place.
+- Category/member/participant rename — all three support add and remove
+  (archive) but not editing a name in place.
 - Real push updates (`/ws/changes` from Design/Windows/03-rest-api.md is
   aspirational, not implemented) — the sidebar and open detail screen
   currently catch up via polling every 4s (`DashboardApp.kt`) rather than

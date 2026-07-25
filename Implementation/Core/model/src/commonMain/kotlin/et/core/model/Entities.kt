@@ -29,6 +29,7 @@ data class Member(
     val householdId: String,
     val displayName: String,
     val deviceId: String? = null,
+    val isArchived: Boolean = false,
 )
 
 data class Category(
@@ -75,6 +76,7 @@ data class TripParticipant(
     val tripId: String,
     val displayName: String,
     val memberId: String? = null,
+    val isArchived: Boolean = false,
 )
 
 data class TripExpense(

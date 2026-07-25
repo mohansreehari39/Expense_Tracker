@@ -3,7 +3,10 @@ package et.windows.server
 import et.core.domain.AddCategory
 import et.core.domain.AddMember
 import et.core.domain.AddTripExpenseWithSplit
+import et.core.domain.AddTripParticipant
 import et.core.domain.ArchiveCategory
+import et.core.domain.ArchiveMember
+import et.core.domain.ArchiveTripParticipant
 import et.core.domain.CreateHousehold
 import et.core.domain.CreateTrip
 import et.core.domain.EditHouseholdExpense
@@ -28,8 +31,11 @@ class AppServices(
     val addCategory = AddCategory(repository, idGenerator)
     val archiveCategory = ArchiveCategory(repository)
     val addMember = AddMember(repository, idGenerator)
+    val archiveMember = ArchiveMember(repository)
 
     val createTrip = CreateTrip(repository, idGenerator)
     val addTripExpenseWithSplit = AddTripExpenseWithSplit(repository, idGenerator)
     val editTripExpenseWithSplit = EditTripExpenseWithSplit(repository, idGenerator)
+    val addTripParticipant = AddTripParticipant(repository, idGenerator)
+    val archiveTripParticipant = ArchiveTripParticipant(repository)
 }

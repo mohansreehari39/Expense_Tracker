@@ -164,6 +164,13 @@ private fun Route.households(services: AppServices) {
                     }
                     call.respond(HttpStatusCode.Created, member.toDto())
                 }
+
+                delete("/{memberId}") {
+                    val memberId = call.parameters["memberId"]!!
+                    val archived = services.archiveMember(memberId)
+                        ?: return@delete call.respond(HttpStatusCode.NotFound)
+                    call.respond(archived.toDto())
+                }
             }
 
             route("/budgets") {
@@ -345,6 +352,26 @@ private fun Route.trips(services: AppServices) {
                 )
                 services.repository.saveTrip(updated)
                 call.respond(updated.toDto(tripEvaluation(services, tripId, updated.budgetAmount).toDto()))
+            }
+
+            route("/participants") {
+                post {
+                    val tripId = call.parameters["tripId"]!!
+                    val request = call.receive<AddTripParticipantRequest>()
+                    val participant = try {
+                        services.addTripParticipant(tripId, request.displayName)
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid participant name")))
+                    }
+                    call.respond(HttpStatusCode.Created, participant.toDto())
+                }
+
+                delete("/{participantId}") {
+                    val participantId = call.parameters["participantId"]!!
+                    val archived = services.archiveTripParticipant(participantId)
+                        ?: return@delete call.respond(HttpStatusCode.NotFound)
+                    call.respond(archived.toDto())
+                }
             }
 
             route("/expenses") {
