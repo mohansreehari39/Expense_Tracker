@@ -10,7 +10,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,9 +43,11 @@ fun FrameWindowScope.DashboardApp(
     // area when maximized on Windows — that's normally handled by the
     // native title bar we opted out of. Telling AWT explicitly what
     // "maximized" means fixes it; otherwise the window covers the
-    // taskbar. Single-primary-monitor assumption: if the window is moved
-    // to another display before maximizing, these bounds won't match it.
-    LaunchedEffect(Unit) {
+    // taskbar. Recomputed on every click (not once at startup) against
+    // window.graphicsConfiguration — which reflects whichever monitor the
+    // window is *currently* on — so dragging to a different monitor
+    // (different taskbar position/size) before maximizing still works.
+    fun handleToggleMaximize() {
         val screenBounds = window.graphicsConfiguration.bounds
         val insets = Toolkit.getDefaultToolkit().getScreenInsets(window.graphicsConfiguration)
         window.maximizedBounds = Rectangle(
@@ -55,6 +56,7 @@ fun FrameWindowScope.DashboardApp(
             screenBounds.width - insets.left - insets.right,
             screenBounds.height - insets.top - insets.bottom,
         )
+        onToggleMaximize()
     }
 
     KharchaTheme(darkTheme = darkTheme) {
@@ -64,7 +66,7 @@ fun FrameWindowScope.DashboardApp(
                     icon = icon,
                     isMaximized = windowState.placement == WindowPlacement.Maximized,
                     onMinimize = onMinimize,
-                    onToggleMaximize = onToggleMaximize,
+                    onToggleMaximize = ::handleToggleMaximize,
                     onClose = onClose,
                 )
 
