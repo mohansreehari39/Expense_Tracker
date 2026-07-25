@@ -32,9 +32,15 @@ fun BudgetEvaluation.toDto() = BudgetEvaluationDto(status.name, allocated.toDto(
 // -- Households -----------------------------------------------------------
 
 @Serializable
-data class HouseholdDto(val id: String, val name: String, val weekEvaluation: BudgetEvaluationDto? = null)
+data class HouseholdDto(
+    val id: String,
+    val name: String,
+    val defaultMonthlyBudget: MoneyDto? = null,
+    val weekEvaluation: BudgetEvaluationDto? = null,
+)
 
-fun Household.toDto(weekEvaluation: BudgetEvaluationDto? = null) = HouseholdDto(id, name, weekEvaluation)
+fun Household.toDto(weekEvaluation: BudgetEvaluationDto? = null) =
+    HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), weekEvaluation)
 
 @Serializable
 data class CategoryDto(val id: String, val name: String, val icon: String)
@@ -48,7 +54,7 @@ data class HouseholdResponse(val household: HouseholdDto, val categories: List<C
 data class CreateHouseholdRequest(val name: String)
 
 @Serializable
-data class UpdateHouseholdRequest(val name: String)
+data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null)
 
 @Serializable
 data class MonthlyBudgetDto(val id: String, val year: Int, val month: Int, val totalAmount: MoneyDto)
@@ -71,7 +77,16 @@ fun HouseholdExpense.toDto() = HouseholdExpenseDto(id, categoryId, amount.toDto(
 data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
 
 @Serializable
-data class MonthBudgetResponse(val budget: MonthlyBudgetDto?, val weeks: List<WeekEvaluationDto>)
+data class MonthBudgetResponse(
+    val year: Int,
+    val month: Int,
+    /** Override for this month if one exists, else the household's default, else null. */
+    val effectiveBudget: MoneyDto?,
+    val isOverride: Boolean,
+    val defaultBudget: MoneyDto?,
+    val monthlyEvaluation: BudgetEvaluationDto?,
+    val weeks: List<WeekEvaluationDto>,
+)
 
 @Serializable
 data class SetBudgetRequest(val year: Int, val month: Int, val totalAmountMinorUnits: Long, val currency: String)

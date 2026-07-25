@@ -40,16 +40,29 @@ class SqlDelightRepository(
 ) : Repository {
 
     override suspend fun households(): List<Household> = withContext(Dispatchers.IO) {
-        db.schemaQueries.selectHouseholds().executeAsList().map { Household(it.id, it.name, it.createdAt) }
+        db.schemaQueries.selectHouseholds().executeAsList().map(::toHousehold)
     }
 
     override suspend fun household(householdId: String): Household? = withContext(Dispatchers.IO) {
-        db.schemaQueries.selectHouseholdById(householdId).executeAsOneOrNull()?.let { Household(it.id, it.name, it.createdAt) }
+        db.schemaQueries.selectHouseholdById(householdId).executeAsOneOrNull()?.let(::toHousehold)
     }
 
     override suspend fun saveHousehold(household: Household): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertHousehold(household.id, household.name, household.createdAt)
+        db.schemaQueries.upsertHousehold(
+            id = household.id,
+            name = household.name,
+            createdAt = household.createdAt,
+            defaultBudgetAmountMinorUnits = household.defaultMonthlyBudget?.minorUnits,
+            defaultBudgetCurrency = household.defaultMonthlyBudget?.currency,
+        )
         logOp(EntityType.HOUSEHOLD, household.id, mapOf("name" to JsonPrimitive(household.name)))
+    }
+
+    private fun toHousehold(row: et.windows.db.sql.Household): Household {
+        val amount = row.defaultBudgetAmountMinorUnits
+        val currency = row.defaultBudgetCurrency
+        val defaultBudget = if (amount != null && currency != null) Money(amount, currency) else null
+        return Household(row.id, row.name, row.createdAt, defaultBudget)
     }
 
     override suspend fun categories(householdId: String): List<Category> = withContext(Dispatchers.IO) {

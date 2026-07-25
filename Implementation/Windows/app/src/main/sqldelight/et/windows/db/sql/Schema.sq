@@ -31,11 +31,14 @@ SELECT * FROM operationLog;
 CREATE TABLE household (
     id TEXT NOT NULL PRIMARY KEY,
     name TEXT NOT NULL,
-    createdAt INTEGER NOT NULL
+    createdAt INTEGER NOT NULL,
+    defaultBudgetAmountMinorUnits INTEGER,
+    defaultBudgetCurrency TEXT
 );
 
 upsertHousehold:
-INSERT OR REPLACE INTO household (id, name, createdAt) VALUES (?, ?, ?);
+INSERT OR REPLACE INTO household (id, name, createdAt, defaultBudgetAmountMinorUnits, defaultBudgetCurrency)
+VALUES (?, ?, ?, ?, ?);
 
 selectHouseholds:
 SELECT * FROM household ORDER BY createdAt;

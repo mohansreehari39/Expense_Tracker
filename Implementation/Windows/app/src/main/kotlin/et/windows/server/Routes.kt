@@ -1,16 +1,17 @@
 package et.windows.server
 
 import et.core.domain.DebtSimplification
+import et.core.domain.EffectiveMonthlyBudget
 import et.core.domain.SplitMode
 import et.core.domain.TripBalances
 import et.core.domain.WeeklyBudget
 import et.core.domain.evaluateBudget
+import et.core.domain.resolveMonthlyBudget
 import et.core.model.Money
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
-import et.core.model.Household
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -29,10 +30,16 @@ private fun LocalDate.exclusiveEndMillis(): Long = LocalDate.fromEpochDays(toEpo
 private fun Long.toLocalDate(): LocalDate = Instant.fromEpochMilliseconds(this).toLocalDateTime(zone).date
 private fun today(): LocalDate = Clock.System.now().toLocalDateTime(zone).date
 
+private suspend fun effectiveBudget(services: AppServices, householdId: String, year: Int, month: Int): EffectiveMonthlyBudget {
+    val household = services.repository.household(householdId) ?: return EffectiveMonthlyBudget(null, isOverride = false)
+    val override = services.repository.monthlyBudget(householdId, year, month)
+    return resolveMonthlyBudget(household, override)
+}
+
 private suspend fun currentWeekEvaluation(services: AppServices, householdId: String): et.core.domain.BudgetEvaluation? {
     val week = WeeklyBudget.weekContaining(today())
-    val budget = services.repository.monthlyBudget(householdId, week.start.year, week.start.monthNumber) ?: return null
-    val allocated = WeeklyBudget.weekAllocation(budget, week)
+    val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount ?: return null
+    val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
     val spent = services.repository
         .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
         .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }
@@ -80,7 +87,10 @@ private fun Route.households(services: AppServices) {
                 val existing = services.repository.household(householdId)
                     ?: return@put call.respond(HttpStatusCode.NotFound)
                 val request = call.receive<UpdateHouseholdRequest>()
-                val updated = Household(id = existing.id, name = request.name, createdAt = existing.createdAt)
+                val updated = existing.copy(
+                    name = request.name,
+                    defaultMonthlyBudget = request.defaultMonthlyBudget?.toModel(),
+                )
                 services.repository.saveHousehold(updated)
                 call.respond(updated.toDto())
             }
@@ -90,14 +100,24 @@ private fun Route.households(services: AppServices) {
                     val householdId = call.parameters["householdId"]!!
                     val year = call.parameters["year"]!!.toInt()
                     val month = call.parameters["month"]!!.toInt()
-                    val budget = services.repository.monthlyBudget(householdId, year, month)
-                    val currency = budget?.totalAmount?.currency ?: "INR"
+                    val household = services.repository.household(householdId)
+                        ?: return@get call.respond(HttpStatusCode.NotFound)
+                    val override = services.repository.monthlyBudget(householdId, year, month)
+                    val effective = resolveMonthlyBudget(household, override)
+                    val currency = effective.amount?.currency ?: household.defaultMonthlyBudget?.currency ?: "INR"
 
+                    val monthRange = WeeklyBudget.monthRange(year, month)
+                    val monthSpent = services.repository
+                        .householdExpensesBetween(householdId, monthRange.start.startOfDayMillis(), monthRange.endInclusive.exclusiveEndMillis())
+                        .fold(Money(0, currency)) { acc, e -> acc + e.amount }
+                    val monthlyEvaluation = effective.amount?.let { evaluateBudget(it, monthSpent) }
+
+                    val effectiveAmount = effective.amount
                     val weeks = weeksInMonth(year, month).map { week ->
-                        val evaluation = if (budget == null) {
+                        val evaluation = if (effectiveAmount == null) {
                             BudgetEvaluationDto("OK", MoneyDto(0, currency), MoneyDto(0, currency), MoneyDto(0, currency))
                         } else {
-                            val allocated = WeeklyBudget.weekAllocation(budget, week)
+                            val allocated = WeeklyBudget.weekAllocation(effectiveAmount, year, month, week)
                             val spent = services.repository
                                 .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
                                 .fold(Money(0, currency)) { acc, e -> acc + e.amount }
@@ -105,7 +125,17 @@ private fun Route.households(services: AppServices) {
                         }
                         WeekEvaluationDto(week.start.toString(), week.endInclusive.toString(), evaluation)
                     }
-                    call.respond(MonthBudgetResponse(budget?.toDto(), weeks))
+                    call.respond(
+                        MonthBudgetResponse(
+                            year = year,
+                            month = month,
+                            effectiveBudget = effective.amount?.toDto(),
+                            isOverride = effective.isOverride,
+                            defaultBudget = household.defaultMonthlyBudget?.toDto(),
+                            monthlyEvaluation = monthlyEvaluation?.toDto(),
+                            weeks = weeks,
+                        ),
+                    )
                 }
 
                 post {
@@ -151,11 +181,11 @@ private fun Route.households(services: AppServices) {
                     )
 
                     val week = WeeklyBudget.weekContaining(request.occurredAt.toLocalDate())
-                    val budget = services.repository.monthlyBudget(householdId, week.start.year, week.start.monthNumber)
-                    val weekEvaluation = if (budget == null) {
+                    val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount
+                    val weekEvaluation = if (amount == null) {
                         evaluateBudget(Money(0, expense.amount.currency), expense.amount)
                     } else {
-                        val allocated = WeeklyBudget.weekAllocation(budget, week)
+                        val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
                         val spent = services.repository
                             .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
                             .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }

@@ -49,9 +49,17 @@ What works right now:
   materialized entity tables. Every write also appends to the log so a
   later sync pass doesn't need a schema change.
 - **Households** (`/api/v1/households/...`): create multiple households,
-  each with its own categories, monthly budget, and derived weekly
-  breakdown — verified end-to-end including partial-week proportional
-  allocation and the OK/NEARING/OVER status from `core-domain`.
+  each with its own categories and budget. Budget has two layers: a
+  household-level **default monthly budget** (`Household.defaultMonthlyBudget`,
+  set from the sidebar's gear icon → `HouseholdSettingsDialog.kt`) and an
+  optional **per-month override** (a `MonthlyBudget` row, set from the ✏️
+  next to the monthly bar in the main content →
+  `MonthlyBudgetOverrideDialog.kt`) that applies to that month only.
+  `core-domain`'s `resolveMonthlyBudget` picks the override if one exists,
+  else the default, else nothing — verified end-to-end for all three
+  cases via curl. The weekly breakdown is always derived from whichever
+  amount resolves, never stored — verified including partial-week
+  proportional allocation and the OK/NEARING/OVER status.
 - **Activities** (`/api/v1/trips/...`, labeled "Activities" in the UI):
   create a trip/event with participants and a budget, add expenses split
   equally among participants, and see derived balances plus
@@ -64,17 +72,28 @@ What works right now:
   the same budget evaluation as the dashboard). Clicking a row selects it
   as the single main-content view on the right (`DashboardApp.kt`) — like
   clicking a channel in Slack. Hovering a row reveals a **⚙ gear** icon
-  right there in the sidebar, which opens a rename/budget-edit popup
-  (`HouseholdSettingsDialog.kt`/`TripSettingsDialog.kt`, backed by
-  `PUT /households/{id}` and `PUT /trips/{id}`) — settings live in the
-  sidebar, not in the main content header. The main content header has
-  only a single **➕ Add Expense** button, scoped to whichever household/
-  activity is selected.
-- The selected item's main content is a **Dashboard** (the red/amber/green
-  budget-status card, per Design/Core/05-domain-logic.md) plus an
-  **Analytics** section: a dependency-free Canvas-based bar chart
-  (`SimpleBarChart.kt`) — spend-by-category for households, per-
-  participant balances for activities.
+  right there in the sidebar, which opens a rename/**default**-budget-edit
+  popup (`HouseholdSettingsDialog.kt`/`TripSettingsDialog.kt`, backed by
+  `PUT /households/{id}` and `PUT /trips/{id}`) — household/activity-level
+  settings live in the sidebar, not in the main content header. The main
+  content header has only a single **➕ Add Expense** button, scoped to
+  whichever household/activity is selected. The one exception is a
+  household's **month-specific override**, which is inherently tied to
+  whichever month is currently showing, so its ✏️ edit affordance lives
+  next to the monthly bar in the main content instead of the sidebar.
+- The selected item's main content is a **Dashboard** plus an
+  **Analytics** section. For households, the dashboard is
+  `MonthlyBudgetChart.kt`: a full-length monthly progress bar with that
+  month's ~4–5 weeks shown as proportionally-sized segments underneath it
+  (each week's width is its `allocated` share of the month, so the
+  segments' combined width equals the monthly bar's width) — this
+  replaced an earlier "This Week" banner + button that the user found
+  confusing (it looked like it edited the weekly budget; weekly budgets
+  were never directly editable, only derived). Activities keep the
+  existing single-bar `BudgetStatusBanner.kt` (no weekly split — a trip
+  has one overall budget, not a monthly/weekly one). Both plus a
+  dependency-free Canvas bar chart (`SimpleBarChart.kt`) below — spend-
+  by-category for households, per-participant balances for activities.
 - **Custom title bar** (`WindowTitleBar.kt`): the window is undecorated
   (`Main.kt`) so the default OS minimize/maximize/close buttons — which
   read as flat and generic — are replaced with colored, hover-responsive
@@ -94,14 +113,16 @@ What works right now:
   choice is remembered across launches in `~/.kharcha/theme.txt`
   (`ThemePreference.kt`) and always wins over the OS theme after that.
 
-**Known gap:** rendering the Compose window could not be visually verified
-in the sandboxed environment this was built in — Skiko (Compose's renderer)
-threw `Cannot create Linux GL context` there, which looks like a
-sandbox/GPU-passthrough limitation rather than an app bug, since the app
-compiles cleanly and the exact same JVM process's Ktor server came up and
-served real, correct data over HTTP in that same run, in every pass so far.
-If you hit the same GL error running `./gradlew :app:run` on your own
-machine, tell me and I'll dig into it.
+Confirmed working end-to-end on a real Windows machine (this was built in
+a sandbox that can't render a GL/Compose window, so only the backend was
+directly verified here each pass — the window itself checks out fine).
+
+**Schema note:** the `household` table gained two nullable columns
+(`defaultBudgetAmountMinorUnits`, `defaultBudgetCurrency`). `WindowsDatabase.Schema.create`
+only runs against a brand-new SQLite file, so an existing `~/.kharcha/data.db`
+from before this change won't have them — delete `~/.kharcha` (or just the
+`data.db` file) to pick up the new schema. Fine for v0 with no real
+migration story yet; flag if this becomes disruptive.
 
 ## Building a setup.exe installer
 
