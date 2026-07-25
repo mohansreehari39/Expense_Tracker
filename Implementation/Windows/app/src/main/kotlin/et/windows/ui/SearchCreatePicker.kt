@@ -20,10 +20,9 @@ import kotlinx.coroutines.launch
 /**
  * A searchable, create-or-select field: typing filters the existing items;
  * picking a suggestion selects it; typing a name with no case-insensitive
- * match offers "+ Create". Backs both [CategoryPicker] and [MemberPicker] —
- * actual dedup safety is on the server (see `AddCategory`/`AddMember`),
- * this is just the UI's best-effort filter to make picking the existing
- * one the easy path.
+ * match offers "+ Create". Backs [CategoryPicker] — actual dedup safety is
+ * on the server (see `AddCategory`), this is just the UI's best-effort
+ * filter to make picking the existing one the easy path.
  */
 @Composable
 fun <T> SearchCreatePicker(

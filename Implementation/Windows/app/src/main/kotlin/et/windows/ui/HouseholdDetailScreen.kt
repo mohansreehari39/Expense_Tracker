@@ -163,7 +163,6 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             currency = currency,
             onDismiss = { showAddExpense = false },
             onCreateCategory = { name -> api.addCategory(householdId, name) },
-            onCreateMember = { name -> api.addMember(householdId, name) },
             onSubmit = { request ->
                 scope.launch {
                     api.recordExpense(householdId, request)
