@@ -84,13 +84,24 @@ class SqlDelightRepository(
     }
 
     override suspend fun members(householdId: String): List<Member> = withContext(Dispatchers.IO) {
-        db.schemaQueries.selectMembers(householdId).executeAsList().map {
-            Member(it.id, it.householdId, it.displayName, it.deviceId)
-        }
+        db.schemaQueries.selectMembers(householdId).executeAsList().map(::toMember)
     }
 
+    override suspend fun memberById(memberId: String): Member? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectMemberById(memberId).executeAsOneOrNull()?.let(::toMember)
+    }
+
+    private fun toMember(row: et.windows.db.sql.Member) =
+        Member(row.id, row.householdId, row.displayName, row.deviceId, row.isArchived == 1L)
+
     override suspend fun saveMember(member: Member): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertMember(member.id, member.householdId, member.displayName, member.deviceId)
+        db.schemaQueries.upsertMember(
+            member.id,
+            member.householdId,
+            member.displayName,
+            member.deviceId,
+            if (member.isArchived) 1L else 0L,
+        )
         logOp(EntityType.MEMBER, member.id, mapOf("displayName" to JsonPrimitive(member.displayName)))
     }
 
@@ -229,17 +240,23 @@ class SqlDelightRepository(
     }
 
     override suspend fun tripParticipants(tripId: String): List<TripParticipant> = withContext(Dispatchers.IO) {
-        db.schemaQueries.selectTripParticipants(tripId).executeAsList().map {
-            TripParticipant(it.id, it.tripId, it.displayName, it.memberId)
-        }
+        db.schemaQueries.selectTripParticipants(tripId).executeAsList().map(::toTripParticipant)
     }
 
+    override suspend fun tripParticipantById(participantId: String): TripParticipant? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectTripParticipantById(participantId).executeAsOneOrNull()?.let(::toTripParticipant)
+    }
+
+    private fun toTripParticipant(row: et.windows.db.sql.TripParticipant) =
+        TripParticipant(row.id, row.tripId, row.displayName, row.memberId, row.isArchived == 1L)
+
     override suspend fun saveTripParticipant(participant: TripParticipant): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.insertTripParticipant(
+        db.schemaQueries.upsertTripParticipant(
             participant.id,
             participant.tripId,
             participant.displayName,
             participant.memberId,
+            if (participant.isArchived) 1L else 0L,
         )
         logOp(EntityType.TRIP_PARTICIPANT, participant.id, mapOf("displayName" to JsonPrimitive(participant.displayName)))
     }

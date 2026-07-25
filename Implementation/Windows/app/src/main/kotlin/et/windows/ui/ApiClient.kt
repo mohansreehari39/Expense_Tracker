@@ -1,13 +1,16 @@
 package et.windows.ui
 
 import et.windows.server.AddCategoryRequest
+import et.windows.server.AddMemberRequest
 import et.windows.server.AddTripExpenseRequest
+import et.windows.server.AddTripParticipantRequest
 import et.windows.server.CategoryDto
 import et.windows.server.CreateHouseholdRequest
 import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
+import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
@@ -15,6 +18,7 @@ import et.windows.server.SetBudgetRequest
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripDto
 import et.windows.server.TripExpenseDto
+import et.windows.server.TripParticipantDto
 import et.windows.server.UpdateHouseholdRequest
 import et.windows.server.UpdateTripRequest
 import io.ktor.client.HttpClient
@@ -64,6 +68,16 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun archiveCategory(householdId: String, categoryId: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/categories/$categoryId")
+    }
+
+    suspend fun addMember(householdId: String, displayName: String): MemberDto =
+        client.post("$baseUrl/api/v1/households/$householdId/members") {
+            contentType(ContentType.Application.Json)
+            setBody(AddMemberRequest(displayName))
+        }.body()
+
+    suspend fun archiveMember(householdId: String, memberId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
     }
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
@@ -127,5 +141,15 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun deleteTripExpense(tripId: String, expenseId: String) {
         client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
+    }
+
+    suspend fun addTripParticipant(tripId: String, displayName: String): TripParticipantDto =
+        client.post("$baseUrl/api/v1/trips/$tripId/participants") {
+            contentType(ContentType.Application.Json)
+            setBody(AddTripParticipantRequest(displayName))
+        }.body()
+
+    suspend fun archiveTripParticipant(tripId: String, participantId: String) {
+        client.delete("$baseUrl/api/v1/trips/$tripId/participants/$participantId")
     }
 }

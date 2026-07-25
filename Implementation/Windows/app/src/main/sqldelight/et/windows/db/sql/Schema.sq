@@ -67,14 +67,18 @@ CREATE TABLE member (
     id TEXT NOT NULL PRIMARY KEY,
     householdId TEXT NOT NULL,
     displayName TEXT NOT NULL,
-    deviceId TEXT
+    deviceId TEXT,
+    isArchived INTEGER NOT NULL DEFAULT 0
 );
 
 upsertMember:
-INSERT OR REPLACE INTO member (id, householdId, displayName, deviceId) VALUES (?, ?, ?, ?);
+INSERT OR REPLACE INTO member (id, householdId, displayName, deviceId, isArchived) VALUES (?, ?, ?, ?, ?);
 
 selectMembers:
-SELECT * FROM member WHERE householdId = ?;
+SELECT * FROM member WHERE householdId = ? AND isArchived = 0;
+
+selectMemberById:
+SELECT * FROM member WHERE id = ?;
 
 CREATE TABLE monthlyBudget (
     id TEXT NOT NULL PRIMARY KEY,
@@ -150,14 +154,18 @@ CREATE TABLE tripParticipant (
     id TEXT NOT NULL PRIMARY KEY,
     tripId TEXT NOT NULL,
     displayName TEXT NOT NULL,
-    memberId TEXT
+    memberId TEXT,
+    isArchived INTEGER NOT NULL DEFAULT 0
 );
 
-insertTripParticipant:
-INSERT INTO tripParticipant (id, tripId, displayName, memberId) VALUES (?, ?, ?, ?);
+upsertTripParticipant:
+INSERT OR REPLACE INTO tripParticipant (id, tripId, displayName, memberId, isArchived) VALUES (?, ?, ?, ?, ?);
 
 selectTripParticipants:
-SELECT * FROM tripParticipant WHERE tripId = ?;
+SELECT * FROM tripParticipant WHERE tripId = ? AND isArchived = 0;
+
+selectTripParticipantById:
+SELECT * FROM tripParticipant WHERE id = ?;
 
 CREATE TABLE tripExpense (
     id TEXT NOT NULL PRIMARY KEY,
