@@ -40,8 +40,7 @@ import et.android.kharcha.ui.theme.Teal
 import kotlinx.coroutines.launch
 
 @Composable
-fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String) {
-    var activity by remember { mutableStateOf<ActivityEntity?>(null) }
+fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, activity: ActivityEntity?) {
     val participants by repo.observeParticipants(activityId).collectAsState(initial = emptyList())
     val expenses by repo.observeActivityExpenses(activityId).collectAsState(initial = emptyList())
     var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
@@ -51,7 +50,6 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String) {
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(activityId) {
-        activity = repo.activity(activityId)
         repo.ensureMyParticipation(activityId, myName)
     }
 
@@ -130,7 +128,7 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String) {
                     val payerName = participants.find { it.id == expense.paidByParticipantId }?.displayName ?: "?"
                     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                         Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column {
+                            Column(Modifier.weight(1f)) {
                                 Text("Paid by $payerName · ${formatExpenseDate(expense.occurredAt)}")
                                 if (expense.note.isNotBlank()) {
                                     Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

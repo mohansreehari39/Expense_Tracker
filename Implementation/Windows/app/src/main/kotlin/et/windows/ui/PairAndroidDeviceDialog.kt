@@ -42,6 +42,11 @@ private const val AUTO_CLOSE_DELAY_MS = 1200L
 @Composable
 fun PairAndroidDeviceDialog(api: ApiClient, onDismiss: () -> Unit) {
     var connectedLabel by remember { mutableStateOf<String?>(null) }
+    // Computed once per dialog show, not per recomposition — connectedLabel
+    // polls and updates every 1.5s below, and each poll tick would otherwise
+    // re-issue a fresh PairingSession secret (invalidating whatever secret
+    // the still-displayed QR embedded) before the phone even finishes scanning.
+    val qrPayload = remember { encodeJoinInvite(joinInviteForServerPairing()) }
 
     LaunchedEffect(Unit) {
         val before = runCatching { api.devices() }.getOrDefault(emptyList())
@@ -68,7 +73,7 @@ fun PairAndroidDeviceDialog(api: ApiClient, onDismiss: () -> Unit) {
         title = { Text("Add Android Device") },
         text = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                QrCodeImage(encodeJoinInvite(joinInviteForServerPairing()), modifier = Modifier.size(200.dp))
+                QrCodeImage(qrPayload, modifier = Modifier.size(200.dp))
                 Spacer(Modifier.height(12.dp))
                 val label = connectedLabel
                 if (label == null) {

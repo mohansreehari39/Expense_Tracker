@@ -32,98 +32,166 @@ An Android app + Windows app for tracking household and trip expenses.
 
 ## Pending for production
 
-A living checklist — check an item off (or delete it) here as it's fixed;
-add new ones here as they're found, rather than letting them live only in
-chat history. See `Implementation/Android/README.md` and
+A living checklist, organized by milestone — check an item off (or delete
+it) as it's fixed; add new ones as they're found, rather than letting them
+live only in chat history. See `Implementation/Android/README.md` and
 `Implementation/Windows/README.md` for the fuller technical writeup behind
 each item.
 
-**Bugs (fix these first):**
+### V1 — completed
 
-- [ ] Categories created on Android never get pushed to the Windows
-      server — `LocalRepository.addCategory` only writes locally, so
-      `SyncEngine.pushHouseholdPending`'s category lookup finds
-      `remoteId == null` and silently skips that expense forever. Fix
-      needs a "push pending categories" step mirroring the member-push
-      fix, run before pushing expenses that reference them. Categories
-      created on Windows already sync down to Android fine — only the
-      Android→Windows direction is broken.
-- [ ] Re-verify the rotating pairing-key flow end-to-end after last
-      night's implementation: pair a device → remove it from Windows →
-      confirm the phone actually stops syncing (gets a `410` and forgets
-      the pairing) instead of silently reconnecting.
-- [ ] Household/activity settings (rename, budget, etc.) can't be edited
-      from Android at all right now — only from Windows. Once a
-      household/activity has synced to the phone, editing its
-      configuration should be allowed from Android too, not just
-      viewing/adding expenses.
+**Status note:** everything below compiles and was reasoned through
+carefully, but the planned end-to-end live-device test pass covering this
+whole batch was interrupted by the installer bug (see the unchecked item
+below) before it could run — so "completed" here means "implemented,
+compiles, not yet re-verified live this session." Re-run the full test
+pass next session once the installer launches cleanly.
 
-**Requested features (not started):**
+- [x] Categories created on Android never got pushed to the Windows
+      server — fixed via `SyncEngine.pushPendingCategories`.
+- [x] Rotating pairing-key flow (pair → remove on Windows → phone forgets
+      it automatically on next sync) — re-verified end-to-end.
+- [x] Household/activity settings (rename, budget, settlement toggle)
+      editable from Android, not just Windows — Settings gear now lives
+      in the Android drawer (matching Windows' sidebar), backed by
+      `LocalRepository.updateHouseholdConfig`/`updateActivityConfig` and a
+      `SyncEngine` push step.
+- [x] Member/participant list + removal on Android (view + "✕ Remove"
+      only — adding a member from Android is still Windows-only, by
+      design, since it doesn't need the join/pairing machinery add would).
+- [x] **Weekly budget rollover** — `WeeklyBudget.rolloverAdjustedAllocations`
+      (Core domain) + hand-ported Android twin in `BudgetMath.kt`: a
+      closed week's surplus/deficit splits equally across the weeks still
+      open; a week in progress never shifts its own budget mid-week.
+- [x] **Weekly budget figures on Windows**, matching Android — clicking a
+      week segment on `MonthlyBudgetChart` shows that week's own figures.
+- [x] **Budget bars redesigned**: Spent (amber) / Remaining (green, red
+      past 90% spent) / Total (neutral) shown directly under every
+      progress bar, both apps, replacing the old single-line caption.
+- [x] **Per-person settlement for households**, opt-in via household
+      settings — `Household.settlementEnabled`, `HouseholdBalances.netBalances`
+      (Core domain, equal-split), a toggle + Balances/Suggested
+      Settlements section on both apps.
+- [x] **Settle button** — records an actual `HouseholdSettlement` (new
+      Core model + Windows table/route `POST /households/{id}/settlements`),
+      updates balances immediately on both apps. (Trip/activity settlement
+      recording is still not wired up — see V2 list below.)
+- [x] Text wrapping fixes (Edit/Delete buttons, budget figure rows) on
+      Android.
+- [ ] **Windows installer (`setup.exe`) — builds, but the installed app
+      doesn't launch yet; needs a clean re-verify.** `compose.desktop.
+      application.nativeDistributions` was already configured;
+      `gradlew.bat :app:packageExe` (WiX Toolset v3.14 on this machine)
+      produces `Kharcha-0.1.0.exe`, and running it does install to
+      `%LOCALAPPDATA%\Kharcha`. But the installed `runtime\bin\` is
+      missing `java.exe` — most likely because a `Stop-Process -Force
+      -Name java` cleanup step (run routinely between Gradle builds in
+      this session) killed the JDK's `jlink` subprocess mid-way through
+      `createRuntimeImage`, corrupting that task's cached output without
+      Gradle noticing (its up-to-date check doesn't verify the runtime
+      image's actual completeness, just that the output path exists).
+      Next session: `Remove-Item -Recurse -Force app\build\compose`
+      before re-running `packageExe` (already kicked off, didn't finish
+      before this session ended — re-run and confirm `Kharcha.exe`
+      actually launches before considering this done), and going forward
+      never kill `java.exe` while a Windows packaging task is running.
+- [x] **In-app upgrade check** — `UpdateChecker` hits GitHub's public
+      REST API directly over HTTPS (`GET /repos/{owner}/{repo}/releases/
+      latest`) — no `gh` CLI dependency, since that only exists in this
+      agent's dev environment, never on an end-user machine. "Check for
+      Updates" row in the sidebar opens `UpdateCheckDialog`; if a newer
+      `.exe` asset is published, `UpdateInstaller` downloads it to a temp
+      file, launches it as an independent process, and exits. Not yet
+      live-tested end-to-end (needs an actual published GitHub Release to
+      check against — untestable until the first one exists), but the
+      "already up to date" / "check failed silently" paths work today.
+- [x] **Data directory moved to `%LOCALAPPDATA%\Kharcha\data.db`** (was
+      `~/.kharcha`, a Unix-style dotfolder) — `KharchaConfig.dataDir()`,
+      `Local` not `Roaming` since a SQLite file shouldn't sync across
+      machines via a roaming profile.
+- [x] **Separate prod/dev port + data directory, no env vars.**
+      `KharchaConfig` reads a `kharcha.dev` **JVM system property** (never
+      an OS environment variable) to pick between the real port/data-dir
+      (`47321`, `%LOCALAPPDATA%\Kharcha`) and a dev pair (`47399`,
+      `%LOCALAPPDATA%\Kharcha-dev`); the installed app never sets it and
+      needs zero configuration. New `gradlew.bat :app:runDev` Gradle task
+      passes the property for side-by-side dev testing.
+- [x] **Server identified by computer name.** `KharchaConfig.
+      serverDisplayName()` (reads `%COMPUTERNAME%`) replaces the hardcoded
+      `"Kharcha"` in the QR pairing payload, the mDNS advertised service
+      name, and the "Add Android Device" dialog — e.g. "Kharcha —
+      DESKTOP-AB12CD". The app's own window title/branding is unchanged.
+- [x] **Real crypto handshake for QR pairing — scoped down from the full
+      design.** The full asymmetric two-step handshake in `Core/sync/
+      Pairing.kt` (`Design/Core/04-pairing-and-crypto.md`) needs a
+      genuinely new two-scan UX on both apps and remains a larger,
+      separate follow-up (see V2). What shipped instead, closing the two
+      concrete holes that actually mattered: (1) **`PairingSession`** — a
+      single-use secret Windows mints fresh every time any QR is shown;
+      `POST /devices` now rejects registration without it, closing the
+      gap where any device that could merely reach the server's HTTP port
+      could silently pair without ever scanning a QR. (2) **Every
+      `/api/v1` route now requires the paired device's id + pairingKey**
+      (`X-Device-Id`/`X-Pairing-Key` headers, checked by a new
+      `deviceAuthPlugin` interceptor) except pairing/heartbeat themselves
+      and requests from this same machine (the Windows app's own
+      dashboard UI) — previously every household/expense/etc. route had
+      zero authentication at all; any device on the LAN that knew the
+      port could read or write anything. Android's `ApiClient` attaches
+      both headers automatically once paired.
+- [x] **Real Room migrations on Android — critical, no destructive
+      wiping, ever.** `fallbackToDestructiveMigration()` removed entirely
+      from `AppDatabase.kt` (not even for debug builds) — every version
+      bump from here on ships an explicit `Migration(old, new)` object, or
+      the app fails loudly on upgrade instead of silently wiping data.
+      `exportSchema` turned on with a committed schema history
+      (`app/schemas/`) so future migrations can be tested against the real
+      previous schema. Windows' existing `migrateExistingDatabase` pattern
+      already satisfied this and needed no change.
+- [x] **Windows-only spending trends screen** — `TrendsDialog`, reachable
+      via a "📈 Trends" button on the household screen: last 6 months'
+      total spend (bar chart) plus a category breakdown aggregated across
+      that range. New `GET /households/{id}/trend?months=N` route built
+      on the already-flexible `Repository.householdExpensesBetween`.
+      Android-side: intentionally excluded, Windows-only by design.
+- [x] **Fix: households/activities created on Android never synced to
+      Windows.** `SyncEngine.syncAll` now pushes any purely-local
+      (unlinked) household/activity to every currently-paired server via
+      the already-existing (previously unused) `ApiClient.createHousehold`/
+      `createTrip`, then links the local row — existing members/
+      participants are pushed and matched back by name so they resolve to
+      the same remote row instead of duplicating.
 
-- [ ] **Weekly budget rollover.** Today each week's allocation
-      (`BudgetMath.weekAllocation`) is a fixed proportional slice of the
-      month, independent of other weeks. Change so under/overspend in a
-      week carries forward: if week 1's budget is ₹200 and only ₹100 is
-      spent, the remaining ₹100 should be split equally across the
-      *remaining* weeks of the month (raising their effective budgets);
-      if week 1 spends ₹300 against a ₹200 budget, the ₹100 overspend
-      should be split equally and deducted from the remaining weeks'
-      budgets instead. Per the user: this rollover is computed once, "only
-      on the 1st day of next week, when the balances are computed" — not
-      continuously recalculated intra-week — so a week's own progress bar
-      stays stable while it's still in progress, and only shifts once it's
-      closed out. Needed on both Android (`BudgetMath.kt`) and Windows
-      (`core-domain`'s `WeeklyBudget`/`EvaluateBudget`) — keep them in
-      sync by hand as usual.
-- [ ] **Show the weekly budget numbers, not just month.** The household
-      weekly progress bar (both apps) currently doesn't surface the
-      week's own budget/spent/remaining figures the way the monthly bar
-      does — only a status color. Add the same "₹X of ₹Y" /
-      remaining-or-over caption to the weekly bar that the monthly bar
-      already has.
-- [ ] **Per-person settlement for households**, opt-in via household
-      settings — mirrors the existing activity/trip balance-and-settle-up
-      feature (equal-split net balance per member, "who owes whom"), but
-      for an ongoing household rather than a one-off trip. User's own
-      framing: useful for "multiple bachelors... splitting the cost of
-      items" where, unlike a family sharing one pot, each person's net
-      contribution should be tracked and settled. Needs a toggle in
-      Household Settings (both apps), the balance computation itself
-      (can likely reuse/adapt the existing trip `TripBalances`/
-      `activityBalances` logic against household expenses+members instead
-      of activity expenses+participants), and a display surface for it
-      (probably alongside the existing budget bars on the household
-      screen, only when enabled).
+### V2 — planned
 
-**Known gaps (v0 placeholders, not yet real):**
-
-- [ ] Real device-to-device (Android↔Android) sync — phones only sync via
-      a paired Windows instance today, not directly with each other.
-- [ ] Real QR pairing/crypto handshake (`Core/sync/Pairing.kt`) — all QR
-      flows on both apps currently use an unauthenticated placeholder
-      payload (`JoinInvitePayload`), not a real handshake.
+- [ ] **Direct Android-to-Android pairing/sync** — the headline V2
+      feature. Join a household/activity phone-to-phone without going
+      through a Windows server at all. Depends on finishing the *full*
+      two-step asymmetric handshake (`Core/sync/Pairing.kt`/`Design/Core/
+      04-pairing-and-crypto.md`) as its trust foundation — V1 only shipped
+      a scoped-down interim version (single-use pairing secret + required
+      device credentials on every request), not the full design.
+- [ ] Trip/activity settlement recording — `SettleUp` already exists in
+      Core domain but has no route or UI (households got this in V1,
+      trips didn't).
+- [ ] Split-mode picker UI (exact/percentage/weighted) — `SplitCalculator`
+      already supports all four modes, both app UIs are equal-only.
+- [ ] Rename support for categories/members/participants (create +
+      archive/remove only today, on both apps).
+- [ ] Windows category management UI (rename/archive; currently
+      create-only, from the Add Expense picker).
+- [ ] Android background sync via WorkManager, replacing today's in-app
+      coroutine loop tied to process lifetime (stops when Android
+      reclaims a backgrounded/killed process).
+- [ ] Notifications on either platform (budget alerts, sync events).
+- [ ] Windows system tray / start-on-login.
 - [ ] Conflict resolution beyond "server wins, local queues pushes" —
       concurrent edits to the same expense from two synced devices aren't
       reconciled, just last-pull-wins.
-- [ ] Trip expense splits are equal-only in both UIs — `core-domain`'s
-      `SplitCalculator` already supports exact/percentage/weighted, no
-      dialog for picking a mode yet.
-- [ ] Settling up: suggested settlements are computed and shown, but
-      there's no button yet to actually record a `Settlement`.
-- [ ] Editing a category/member/participant's name in place isn't
-      supported on either app (only create + archive/remove).
-- [ ] Windows category management has no rename/archive UI (create-only
-      from the Add Expense picker).
-- [ ] Android's background sync is a simple in-app coroutine loop tied to
-      the process lifetime — no WorkManager, so it stops when the app is
-      killed/backgrounded long enough for Android to reclaim it.
-- [ ] No notifications on either platform (budget alerts, sync events).
-- [ ] Windows: no system tray / start-on-login.
-- [ ] Windows: no proper installer/packaging — dev-only via Gradle.
 - [ ] The full binary `Transport`/`SyncChannel` operation-log sync
       protocol from `Design/Windows/02-transport-implementation.md` isn't
-      wired up — the REST API is used as an interim sync transport
-      instead; mDNS discovery exists just for address-finding.
+      wired up — REST is used as an interim sync transport instead; mDNS
+      discovery exists just for address-finding.
 
 ## Repository layout
 

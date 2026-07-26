@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -63,6 +64,8 @@ import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.decodeJoinInvite
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.HouseholdEntity
+import et.android.kharcha.data.local.MemberEntity
+import et.android.kharcha.data.local.ParticipantEntity
 import et.android.kharcha.data.local.ProfileEntity
 import et.android.kharcha.ui.theme.KharchaTheme
 import kotlinx.coroutines.delay
@@ -135,6 +138,8 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     var showCreateTrip by remember { mutableStateOf(false) }
     var connectingMessage by remember { mutableStateOf<String?>(null) }
     var syncingNow by remember { mutableStateOf(false) }
+    var householdSettingsTarget by remember { mutableStateOf<String?>(null) }
+    var activitySettingsTarget by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Best-effort background sync for anything linked to a paired server —
@@ -158,8 +163,11 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
             connectingMessage = "Joining ${invite.name.ifBlank { "household/activity" }}…"
             try {
                 val pairedServerId = "${invite.host}:${invite.port}"
-                val api = ApiClient("http://${invite.host}:${invite.port}")
-                if (repo.pairedServer(pairedServerId) == null) {
+                val baseUrl = "http://${invite.host}:${invite.port}"
+                val deviceId = repo.currentProfile()?.deviceId
+                val existingServer = repo.pairedServer(pairedServerId)
+                var pairingKey = existingServer?.pairingKey
+                if (existingServer == null) {
                     // invite.name here is the household/activity's name, not the
                     // server's — a household/activity QR carries no separate
                     // server-level display name, so fall back to a generic
@@ -169,12 +177,13 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                     // via the trusted pair endpoint — a household/activity join
                     // doubles as device pairing since scanning it required
                     // physical access to the Windows machine's own screen.
-                    val deviceId = repo.currentProfile()?.deviceId
-                    val paired = deviceId?.let { runCatching { api.pairDevice(it, myName) }.getOrNull() }
+                    val paired = deviceId?.let { runCatching { ApiClient(baseUrl).pairDevice(it, myName, invite.pairingSecret) }.getOrNull() }
                     if (paired != null) {
                         repo.pairServer(pairedServerId, "Kharcha Server", invite.host, invite.port, paired.pairingKey)
+                        pairingKey = paired.pairingKey
                     }
                 }
+                val api = ApiClient(baseUrl, deviceId, pairingKey)
                 val result = when (invite.kind) {
                     "household" -> runCatching { SyncEngine.joinHousehold(repo, api, pairedServerId, invite.id, myName) }
                         .onSuccess { navController.navigate("household/$it") }
@@ -205,7 +214,7 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                 val pairedServerId = "${invite.host}:${invite.port}"
                 val deviceId = repo.currentProfile()?.deviceId
                 val paired = deviceId?.let {
-                    runCatching { ApiClient("http://${invite.host}:${invite.port}").pairDevice(it, myName) }.getOrNull()
+                    runCatching { ApiClient("http://${invite.host}:${invite.port}").pairDevice(it, myName, invite.pairingSecret) }.getOrNull()
                 }
                 if (paired != null) {
                     repo.pairServer(pairedServerId, label, invite.host, invite.port, paired.pairingKey)
@@ -235,6 +244,8 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                         navController.navigate("activity/$id")
                         scope.launch { drawerState.close() }
                     },
+                    onOpenHouseholdSettings = { id -> householdSettingsTarget = id },
+                    onOpenActivitySettings = { id -> activitySettingsTarget = id },
                     onAddHousehold = { showCreateHousehold = true },
                     onAddActivity = { showCreateTrip = true },
                     onJoinViaQr = { joinScanLauncher.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false)) },
@@ -287,11 +298,11 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                     }
                     composable(ROUTE_HOUSEHOLD) { entry ->
                         val householdId = entry.arguments?.getString("householdId") ?: return@composable
-                        HouseholdScreen(repo = repo, householdId = householdId, myName = myName)
+                        HouseholdScreen(repo = repo, householdId = householdId, myName = myName, household = households.find { it.id == householdId })
                     }
                     composable(ROUTE_ACTIVITY) { entry ->
                         val activityId = entry.arguments?.getString("activityId") ?: return@composable
-                        ActivityScreen(repo = repo, activityId = activityId, myName = myName)
+                        ActivityScreen(repo = repo, activityId = activityId, myName = myName, activity = activities.find { it.id == activityId })
                     }
                 }
             }
@@ -324,9 +335,91 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
         )
     }
 
+    householdSettingsTarget?.let { id ->
+        val household = households.find { it.id == id }
+        if (household != null) {
+            val members by repo.observeMembers(id).collectAsState(initial = emptyList())
+            HouseholdSettingsDialog(
+                currentName = household.name,
+                currentBudgetMinorUnits = household.defaultBudgetMinorUnits,
+                currentCurrency = household.currency,
+                currentSettlementEnabled = household.settlementEnabled,
+                members = members,
+                onDismiss = { householdSettingsTarget = null },
+                onSubmit = { name, budgetMinorUnits, budgetCurrency, settlementEnabled ->
+                    scope.launch {
+                        repo.updateHouseholdConfig(id, name, budgetMinorUnits, budgetCurrency, settlementEnabled)
+                        householdSettingsTarget = null
+                    }
+                },
+                onRemoveMember = { memberId ->
+                    scope.launch {
+                        removeMemberEverywhere(context, repo, household, memberId)
+                    }
+                },
+            )
+        }
+    }
+
+    activitySettingsTarget?.let { id ->
+        val activity = activities.find { it.id == id }
+        if (activity != null) {
+            val participants by repo.observeParticipants(id).collectAsState(initial = emptyList())
+            ActivitySettingsDialog(
+                currentName = activity.name,
+                currentBudgetMinorUnits = activity.budgetMinorUnits,
+                currentCurrency = activity.currency,
+                participants = participants,
+                onDismiss = { activitySettingsTarget = null },
+                onSubmit = { name, budgetMinorUnits, budgetCurrency ->
+                    scope.launch {
+                        repo.updateActivityConfig(id, name, budgetMinorUnits, budgetCurrency)
+                        activitySettingsTarget = null
+                    }
+                },
+                onRemoveParticipant = { participantId ->
+                    scope.launch {
+                        removeParticipantEverywhere(context, repo, activity, participantId)
+                    }
+                },
+            )
+        }
+    }
+
     connectingMessage?.let { message ->
         ConnectingOverlay(message)
     }
+}
+
+/** Best-effort remote archive (if this household is linked and the member has already synced) followed by an unconditional local removal — mirrors Windows' immediate "✕ Remove" behavior rather than queuing an offline pending-delete. */
+private suspend fun removeMemberEverywhere(context: android.content.Context, repo: LocalRepository, household: HouseholdEntity, memberId: String) {
+    val member = repo.members(household.id).find { it.id == memberId }
+    val remoteHouseholdId = household.remoteId
+    val remoteMemberId = member?.remoteId
+    val pairedServerId = household.pairedServerId
+    if (remoteHouseholdId != null && remoteMemberId != null && pairedServerId != null) {
+        val server = repo.pairedServer(pairedServerId)
+        if (server != null) {
+            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
+            api?.let { runCatching { it.archiveMember(remoteHouseholdId, remoteMemberId) } }
+        }
+    }
+    repo.hardDeleteMember(memberId)
+}
+
+private suspend fun removeParticipantEverywhere(context: android.content.Context, repo: LocalRepository, activity: ActivityEntity, participantId: String) {
+    val participant = repo.participants(activity.id).find { it.id == participantId }
+    val remoteActivityId = activity.remoteId
+    val remoteParticipantId = participant?.remoteId
+    val pairedServerId = activity.pairedServerId
+    if (remoteActivityId != null && remoteParticipantId != null && pairedServerId != null) {
+        val server = repo.pairedServer(pairedServerId)
+        if (server != null) {
+            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
+            api?.let { runCatching { it.archiveTripParticipant(remoteActivityId, remoteParticipantId) } }
+        }
+    }
+    repo.hardDeleteParticipant(participantId)
 }
 
 /** Blocks interaction with the rest of the screen while a scan result is being acted on, so the user can't navigate away mid-join/pair without knowing whether it succeeded. */
@@ -355,6 +448,8 @@ private fun DrawerContent(
     activities: List<ActivityEntity>,
     onSelectHousehold: (String) -> Unit,
     onSelectActivity: (String) -> Unit,
+    onOpenHouseholdSettings: (String) -> Unit,
+    onOpenActivitySettings: (String) -> Unit,
     onAddHousehold: () -> Unit,
     onAddActivity: () -> Unit,
     onJoinViaQr: () -> Unit,
@@ -370,21 +465,31 @@ private fun DrawerContent(
         LazyColumn(Modifier.weight(1f)) {
             item { DrawerSectionHeader("HOUSEHOLD", onAdd = onAddHousehold) }
             items(households) { household ->
-                NavigationDrawerItem(
-                    label = { Text(household.name) },
-                    selected = false,
-                    onClick = { onSelectHousehold(household.id) },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NavigationDrawerItem(
+                        label = { Text(household.name) },
+                        selected = false,
+                        onClick = { onSelectHousehold(household.id) },
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                    IconButton(onClick = { onOpenHouseholdSettings(household.id) }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Household Settings", modifier = Modifier.size(18.dp))
+                    }
+                }
             }
             item { DrawerSectionHeader("ACTIVITIES", onAdd = onAddActivity) }
             items(activities) { activity ->
-                NavigationDrawerItem(
-                    label = { Text(activity.name) },
-                    selected = false,
-                    onClick = { onSelectActivity(activity.id) },
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    NavigationDrawerItem(
+                        label = { Text(activity.name) },
+                        selected = false,
+                        onClick = { onSelectActivity(activity.id) },
+                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    )
+                    IconButton(onClick = { onOpenActivitySettings(activity.id) }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Activity Settings", modifier = Modifier.size(18.dp))
+                    }
+                }
             }
         }
         HorizontalDivider()

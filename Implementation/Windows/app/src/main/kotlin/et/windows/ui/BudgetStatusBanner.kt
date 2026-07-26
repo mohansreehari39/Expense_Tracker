@@ -42,13 +42,37 @@ fun formatMoney(m: MoneyDto): String {
     return "${m.currency} $whole.${fraction.toString().padStart(2, '0')}"
 }
 
+/** Once spent crosses this fraction of the allocation, the "Remaining" figure turns red — a distinct, tighter warning than the OK/NEARING/OVER status color driving the bar/track (80%), specifically for this figure row. */
+private const val REMAINING_DANGER_THRESHOLD = 0.9
+
+/** Spent (amber) / Remaining (green, red past 90%) / Total (neutral) — shown directly under every budget bar/track, on both the monthly chart and this banner. */
+@Composable
+fun BudgetFigureRow(spent: MoneyDto, allocated: MoneyDto, modifier: Modifier = Modifier) {
+    val remaining = allocated.minorUnits - spent.minorUnits
+    val spentFraction = if (allocated.minorUnits <= 0) 1.0 else spent.minorUnits.toDouble() / allocated.minorUnits.toDouble()
+    val remainingColor = if (spentFraction >= REMAINING_DANGER_THRESHOLD) Rose else Teal
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        BudgetFigure("Spent", formatMoney(spent), Amber, Modifier.weight(1f))
+        BudgetFigure("Remaining", formatMoney(MoneyDto(kotlin.math.abs(remaining), allocated.currency)), remainingColor, Modifier.weight(1f))
+        BudgetFigure("Total", formatMoney(allocated), MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun BudgetFigure(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = color, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+}
+
 /**
  * Red when OVER, amber when NEARING, green when OK — overspending is
  * always shown, never blocked. See
  * Design/Core/05-domain-logic.md#budget-status-evaluation.
  */
 @Composable
-fun BudgetStatusBanner(evaluation: BudgetEvaluationDto, modifier: Modifier = Modifier, caption: String = "this week") {
+fun BudgetStatusBanner(evaluation: BudgetEvaluationDto, modifier: Modifier = Modifier, caption: String = "This week's budget") {
     val color = statusColor(evaluation.status)
     val fraction = if (evaluation.allocated.minorUnits <= 0) {
         1f
@@ -67,8 +91,9 @@ fun BudgetStatusBanner(evaluation: BudgetEvaluationDto, modifier: Modifier = Mod
                 Text(statusLabel(evaluation.status), color = color, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             }
             Text(
-                "${formatMoney(evaluation.spent)} spent of ${formatMoney(evaluation.allocated)} $caption",
+                caption,
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
             )
             LinearProgressIndicator(
@@ -77,6 +102,7 @@ fun BudgetStatusBanner(evaluation: BudgetEvaluationDto, modifier: Modifier = Mod
                 color = color,
                 trackColor = color.copy(alpha = 0.15f),
             )
+            BudgetFigureRow(evaluation.spent, evaluation.allocated, modifier = Modifier.padding(top = 8.dp))
             if (evaluation.status == "OVER") {
                 Text(
                     "Over by ${formatMoney(evaluation.remainingOrOver.let { it.copy(minorUnits = -it.minorUnits) })}",

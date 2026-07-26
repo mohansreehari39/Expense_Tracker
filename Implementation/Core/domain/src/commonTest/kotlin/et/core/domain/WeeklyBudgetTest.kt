@@ -53,4 +53,35 @@ class WeeklyBudgetTest {
         val allocation = WeeklyBudget.weekAllocation(budget, week)
         assertEquals(300, allocation.minorUnits) // 3100 * 3 / 31 = 300
     }
+
+    @Test
+    fun rolloverAdjustedAllocations_splitsClosedWeeksNetSurplusAcrossOpenWeeks() {
+        // July 2026: weeks 1-7, 8-14, 15-21, 22-28, 29-31 → base 700/700/700/700/300.
+        val currency = "INR"
+        val weeks = WeeklyBudget.weeksInMonth(2026, 7)
+        val today = LocalDate(2026, 7, 15) // inside week 3 (15-21): weeks 1-2 are closed, weeks 3-5 are open.
+        val spentByWeek = listOf(
+            Money(400, currency), // week 1: 700 - 400 = +300 surplus
+            Money(800, currency), // week 2: 700 - 800 = -100 deficit
+            Money(0, currency), // week 3: open, spend so far irrelevant to its own allocation
+            Money(0, currency), // week 4: open
+            Money(0, currency), // week 5: open
+        )
+        val result = WeeklyBudget.rolloverAdjustedAllocations(Money(3100, currency), 2026, 7, weeks, spentByWeek, today)
+        // Net rollover from closed weeks = 300 - 100 = 200, split across the 3 open weeks: 66/66/68 (remainder to the last).
+        assertEquals(700, result[0].minorUnits) // closed week keeps its own base allocation, unadjusted
+        assertEquals(700, result[1].minorUnits) // closed week keeps its own base allocation, unadjusted
+        assertEquals(766, result[2].minorUnits) // 700 + 66
+        assertEquals(766, result[3].minorUnits) // 700 + 66
+        assertEquals(368, result[4].minorUnits) // 300 + 66 + 2 (integer-division remainder)
+    }
+
+    @Test
+    fun rolloverAdjustedAllocations_noOpenWeeksReturnsBaseAllocations() {
+        val weeks = WeeklyBudget.weeksInMonth(2026, 7)
+        val today = LocalDate(2026, 8, 1) // whole of July has already closed.
+        val spentByWeek = weeks.map { Money(0, "INR") }
+        val result = WeeklyBudget.rolloverAdjustedAllocations(Money(3100, "INR"), 2026, 7, weeks, spentByWeek, today)
+        assertEquals(listOf(700L, 700L, 700L, 700L, 300L), result.map { it.minorUnits })
+    }
 }

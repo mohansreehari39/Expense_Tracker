@@ -28,9 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.CategoryDto
 import et.windows.server.HouseholdExpenseDto
+import et.windows.server.HouseholdResponse
 import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
 import et.windows.server.MoneyDto
+import et.windows.server.RecordHouseholdSettlementRequest
 import et.windows.server.SetBudgetRequest
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -42,12 +44,14 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
     var householdName by remember { mutableStateOf("") }
     var categories by remember { mutableStateOf<List<CategoryDto>>(emptyList()) }
     var members by remember { mutableStateOf<List<MemberDto>>(emptyList()) }
+    var householdResponse by remember { mutableStateOf<HouseholdResponse?>(null) }
     var monthBudget by remember { mutableStateOf<MonthBudgetResponse?>(null) }
     var expenses by remember { mutableStateOf<List<HouseholdExpenseDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
     var expenseToDelete by remember { mutableStateOf<HouseholdExpenseDto?>(null) }
     var showMonthlyOverride by remember { mutableStateOf(false) }
+    var showTrends by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val today = remember { LocalDate.now() }
@@ -56,6 +60,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
     suspend fun reload() {
         try {
             val response = api.household(householdId)
+            householdResponse = response
             householdName = response.household.name
             categories = response.categories
             members = response.members
@@ -78,7 +83,10 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(householdName.ifBlank { "Household" }, style = MaterialTheme.typography.headlineSmall)
-            Button(onClick = { showAddExpense = true }) { Text("➕ Add Expense") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { showTrends = true }) { Text("📈 Trends") }
+                Button(onClick = { showAddExpense = true }) { Text("➕ Add Expense") }
+            }
         }
 
         LazyColumn(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -106,6 +114,58 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                             )
                             Spacer(Modifier.height(8.dp))
                             Button(onClick = { showMonthlyOverride = true }) { Text("Set Monthly Budget") }
+                        }
+                    }
+                }
+
+                val settlement = householdResponse
+                if (settlement != null && settlement.household.settlementEnabled) {
+                    Spacer(Modifier.height(24.dp))
+                    Text("Balances", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            members.forEach { member ->
+                                val balance = settlement.balances[member.id]
+                                val label = when {
+                                    balance == null || balance.minorUnits == 0L -> "settled up"
+                                    balance.minorUnits > 0 -> "is owed ${formatMoney(balance)}"
+                                    else -> "owes ${formatMoney(balance.copy(minorUnits = -balance.minorUnits))}"
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(member.displayName)
+                                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                    if (settlement.suggestedSettlements.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("Suggested Settlements", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp)) {
+                                settlement.suggestedSettlements.forEach { s ->
+                                    val fromName = members.find { it.id == s.fromParticipantId }?.displayName ?: s.fromParticipantId
+                                    val toName = members.find { it.id == s.toParticipantId }?.displayName ?: s.toParticipantId
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("$fromName → $toName: ${formatMoney(s.amount)}")
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                api.recordHouseholdSettlement(
+                                                    householdId,
+                                                    RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
+                                                )
+                                                reload()
+                                            }
+                                        }) { Text("Settle") }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -229,6 +289,10 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                 }
             },
         )
+    }
+
+    if (showTrends) {
+        TrendsDialog(api = api, householdId = householdId, currency = currency, onDismiss = { showTrends = false })
     }
 }
 

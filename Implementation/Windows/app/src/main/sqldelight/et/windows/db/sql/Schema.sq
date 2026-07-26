@@ -33,12 +33,13 @@ CREATE TABLE household (
     name TEXT NOT NULL,
     createdAt INTEGER NOT NULL,
     defaultBudgetAmountMinorUnits INTEGER,
-    defaultBudgetCurrency TEXT
+    defaultBudgetCurrency TEXT,
+    settlementEnabled INTEGER NOT NULL DEFAULT 0
 );
 
 upsertHousehold:
-INSERT OR REPLACE INTO household (id, name, createdAt, defaultBudgetAmountMinorUnits, defaultBudgetCurrency)
-VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO household (id, name, createdAt, defaultBudgetAmountMinorUnits, defaultBudgetCurrency, settlementEnabled)
+VALUES (?, ?, ?, ?, ?, ?);
 
 selectHouseholds:
 SELECT * FROM household ORDER BY createdAt;
@@ -229,6 +230,24 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 selectSettlements:
 SELECT * FROM settlement WHERE tripId = ?;
+
+CREATE TABLE householdSettlement (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    fromMemberId TEXT NOT NULL,
+    toMemberId TEXT NOT NULL,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL,
+    settledAt INTEGER NOT NULL,
+    note TEXT NOT NULL
+);
+
+insertHouseholdSettlement:
+INSERT INTO householdSettlement (id, householdId, fromMemberId, toMemberId, amountMinorUnits, currency, settledAt, note)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+selectHouseholdSettlements:
+SELECT * FROM householdSettlement WHERE householdId = ?;
 
 CREATE TABLE device (
     deviceId TEXT NOT NULL PRIMARY KEY,

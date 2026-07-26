@@ -1,19 +1,15 @@
 package et.windows.db
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
+import et.windows.KharchaConfig
 import et.windows.db.sql.WindowsDatabase
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
 
-/**
- * v0 simplification: stores the DB under the user's home directory
- * (`~/.kharcha/data.db`) rather than `%APPDATA%` — see
- * Design/Windows/05-tray-lifecycle-and-config.md for the intended
- * Windows-specific location, added once packaging/config loading exists.
- */
+/** Data directory resolution lives in [KharchaConfig.dataDir] — `%LOCALAPPDATA%\Kharcha\data.db` on a real install. */
 fun openDatabase(): WindowsDatabase {
-    val dir = File(System.getProperty("user.home"), ".kharcha")
+    val dir = KharchaConfig.dataDir()
     dir.mkdirs()
     val dbFile = File(dir, "data.db")
     val isNewDatabase = !dbFile.exists()
@@ -61,6 +57,20 @@ private fun migrateExistingDatabase(url: String) {
                 )
                 """.trimIndent(),
             )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS householdSettlement (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    householdId TEXT NOT NULL,
+                    fromMemberId TEXT NOT NULL,
+                    toMemberId TEXT NOT NULL,
+                    amountMinorUnits INTEGER NOT NULL,
+                    currency TEXT NOT NULL,
+                    settledAt INTEGER NOT NULL,
+                    note TEXT NOT NULL
+                )
+                """.trimIndent(),
+            )
         }
         addColumnIfMissing(connection, "member", "isArchived", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(connection, "tripParticipant", "isArchived", "INTEGER NOT NULL DEFAULT 0")
@@ -69,6 +79,7 @@ private fun migrateExistingDatabase(url: String) {
         // stale pairings should require a fresh "Add Android Device" scan
         // rather than silently keep heartbeating.
         addColumnIfMissing(connection, "pairedDevice", "pairingKey", "TEXT NOT NULL DEFAULT ''")
+        addColumnIfMissing(connection, "household", "settlementEnabled", "INTEGER NOT NULL DEFAULT 0")
     }
 }
 

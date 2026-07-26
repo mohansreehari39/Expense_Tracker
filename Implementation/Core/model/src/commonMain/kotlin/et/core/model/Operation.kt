@@ -15,6 +15,7 @@ enum class EntityType {
     TRIP_EXPENSE,
     EXPENSE_SPLIT,
     SETTLEMENT,
+    HOUSEHOLD_SETTLEMENT,
     DEVICE,
 }
 

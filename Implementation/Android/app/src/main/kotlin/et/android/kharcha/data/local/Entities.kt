@@ -50,6 +50,10 @@ data class HouseholdEntity(
     val pairedServerId: String?,
     val remoteId: String?,
     val createdAt: Long,
+    /** Set when the name/budget was edited locally on Android; cleared once SyncEngine has pushed it to a linked server. Irrelevant for a purely-local household. */
+    val pendingConfigSync: Boolean = false,
+    /** Opt-in per-member balance tracking (equal-split net balance, "who owes whom") — mirrors the trip/activity balance feature. See LocalRepository.householdBalances. */
+    val settlementEnabled: Boolean = false,
 )
 
 @Entity(tableName = "category")
@@ -102,6 +106,8 @@ data class ActivityEntity(
     val pairedServerId: String?,
     val remoteId: String?,
     val createdAt: Long,
+    /** Set when the name/budget was edited locally on Android; cleared once SyncEngine has pushed it to a linked server. Irrelevant for a purely-local activity. */
+    val pendingConfigSync: Boolean = false,
 )
 
 @Entity(tableName = "participant")

@@ -73,7 +73,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                 item {
                     error?.let { Text("Couldn't reach the server: $it", color = MaterialTheme.colorScheme.error) }
 
-                    current.trip.evaluation?.let { BudgetStatusBanner(it, caption = "overall") }
+                    current.trip.evaluation?.let { BudgetStatusBanner(it, caption = "Overall budget") }
                     Spacer(Modifier.height(24.dp))
 
                     if (current.balances.values.any { it.minorUnits != 0L }) {

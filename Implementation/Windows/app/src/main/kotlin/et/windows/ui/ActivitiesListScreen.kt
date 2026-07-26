@@ -103,7 +103,7 @@ private fun TripCard(trip: TripDto, onClick: () -> Unit) {
             Text("Budget: ${formatMoney(trip.budget)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             trip.evaluation?.let {
                 Spacer(Modifier.height(12.dp))
-                BudgetStatusBanner(it, caption = "overall")
+                BudgetStatusBanner(it, caption = "Overall budget")
             }
         }
     }

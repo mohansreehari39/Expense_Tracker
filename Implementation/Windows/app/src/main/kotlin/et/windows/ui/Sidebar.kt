@@ -55,7 +55,7 @@ sealed interface Selection {
 }
 
 private sealed interface SettingsTarget {
-    data class HouseholdTarget(val id: String, val name: String, val defaultBudget: MoneyDto?) : SettingsTarget
+    data class HouseholdTarget(val id: String, val name: String, val defaultBudget: MoneyDto?, val settlementEnabled: Boolean) : SettingsTarget
     data class TripTarget(val id: String, val name: String, val budgetMinorUnits: Long, val currency: String) : SettingsTarget
 }
 
@@ -78,6 +78,7 @@ fun Sidebar(
     var showCreateTrip by remember { mutableStateOf(false) }
     var showPairDevice by remember { mutableStateOf(false) }
     var settingsTarget by remember { mutableStateOf<SettingsTarget?>(null) }
+    var showUpdateCheck by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -103,7 +104,7 @@ fun Sidebar(
                 selected = selection == Selection.HouseholdSel(household.id),
                 onClick = { onSelect(Selection.HouseholdSel(household.id)) },
                 onSettings = {
-                    settingsTarget = SettingsTarget.HouseholdTarget(household.id, household.name, household.defaultMonthlyBudget)
+                    settingsTarget = SettingsTarget.HouseholdTarget(household.id, household.name, household.defaultMonthlyBudget, household.settlementEnabled)
                 },
             )
         }
@@ -176,6 +177,18 @@ fun Sidebar(
         )
         ThemeToggleSwitch(darkTheme = darkTheme, onToggle = onToggleTheme)
     }
+    Row(
+        Modifier.fillMaxWidth().clickable { showUpdateCheck = true }.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Check for Updates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("v${et.windows.APP_VERSION}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    }
+
+    if (showUpdateCheck) {
+        UpdateCheckDialog(onDismiss = { showUpdateCheck = false })
     }
 
     if (showPairDevice) {
@@ -227,10 +240,11 @@ fun Sidebar(
             householdId = target.id,
             currentName = target.name,
             currentDefaultBudget = target.defaultBudget,
+            currentSettlementEnabled = target.settlementEnabled,
             onDismiss = { settingsTarget = null },
-            onSave = { newName, newDefaultBudget ->
+            onSave = { newName, newDefaultBudget, newSettlementEnabled ->
                 scope.launch {
-                    api.updateHousehold(target.id, UpdateHouseholdRequest(newName, newDefaultBudget))
+                    api.updateHousehold(target.id, UpdateHouseholdRequest(newName, newDefaultBudget, newSettlementEnabled))
                     settingsTarget = null
                     onChanged()
                 }

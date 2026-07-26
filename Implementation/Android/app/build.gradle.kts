@@ -71,3 +71,10 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 }
+
+ksp {
+    // Exported schema history lives here — required so real Migration
+    // objects (see AppDatabase.kt) can be tested against the actual
+    // previous-version schema instead of being written blind.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}

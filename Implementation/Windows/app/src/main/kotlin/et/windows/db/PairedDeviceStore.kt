@@ -46,6 +46,11 @@ class PairedDeviceStore(private val db: WindowsDatabase) {
         device
     }
 
+    /** Same check as [heartbeat] but doesn't touch `lastSeenAt` — used by the general per-request device-auth check (see `Server.kt`) on every non-pairing/non-heartbeat route, not just the heartbeat endpoint itself. */
+    suspend fun isValid(id: String, pairingKey: String): Boolean = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectPairedDeviceById(id).executeAsOneOrNull()?.pairingKey == pairingKey
+    }
+
     /** Forgets a paired device — it needs a fresh QR scan (and a fresh key) to reconnect. */
     suspend fun remove(id: String): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.deletePairedDevice(id)

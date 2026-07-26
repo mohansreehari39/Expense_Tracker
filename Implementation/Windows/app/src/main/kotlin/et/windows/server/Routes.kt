@@ -1,5 +1,6 @@
 package et.windows.server
 
+import et.core.domain.DateRange
 import et.core.domain.DebtSimplification
 import et.core.domain.EffectiveMonthlyBudget
 import et.core.domain.SplitMode
@@ -37,14 +38,31 @@ private suspend fun effectiveBudget(services: AppServices, householdId: String, 
     return resolveMonthlyBudget(household, override)
 }
 
+/**
+ * Every week of [year]/[month] evaluated together, so under/overspend in a
+ * closed week can be rolled forward into the weeks still open — see
+ * [WeeklyBudget.rolloverAdjustedAllocations]. Shared by every call site that
+ * needs a single week's evaluation, so the sidebar status dot, the
+ * post-expense response, and the full month view never disagree about a
+ * given week's effective (rollover-adjusted) budget.
+ */
+private suspend fun weeklyEvaluations(services: AppServices, householdId: String, year: Int, month: Int, amount: Money): List<Pair<DateRange, et.core.domain.BudgetEvaluation>> {
+    val weeks = WeeklyBudget.weeksInMonth(year, month)
+    val spentByWeek = weeks.map { week ->
+        services.repository
+            .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
+            .fold(Money(0, amount.currency)) { acc, e -> acc + e.amount }
+    }
+    val allocations = WeeklyBudget.rolloverAdjustedAllocations(amount, year, month, weeks, spentByWeek, today())
+    return weeks.indices.map { i -> weeks[i] to evaluateBudget(allocations[i], spentByWeek[i]) }
+}
+
 private suspend fun currentWeekEvaluation(services: AppServices, householdId: String): et.core.domain.BudgetEvaluation? {
-    val week = WeeklyBudget.weekContaining(today())
-    val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount ?: return null
-    val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
-    val spent = services.repository
-        .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
-        .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }
-    return evaluateBudget(allocated, spent)
+    val t = today()
+    val amount = effectiveBudget(services, householdId, t.year, t.monthNumber).amount ?: return null
+    return weeklyEvaluations(services, householdId, t.year, t.monthNumber, amount)
+        .find { (week, _) -> t >= week.start && t <= week.endInclusive }
+        ?.second
 }
 
 /**
@@ -70,17 +88,25 @@ private suspend fun weekEvaluationFor(
     currency: String,
     spentSoFar: Money,
 ): et.core.domain.BudgetEvaluation {
-    val week = WeeklyBudget.weekContaining(occurredAt.toLocalDate())
+    val date = occurredAt.toLocalDate()
+    val week = WeeklyBudget.weekContaining(date)
     val amount = effectiveBudget(services, householdId, week.start.year, week.start.monthNumber).amount
-    return if (amount == null) {
-        evaluateBudget(Money(0, currency), spentSoFar)
-    } else {
-        val allocated = WeeklyBudget.weekAllocation(amount, week.start.year, week.start.monthNumber, week)
-        val spent = services.repository
-            .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
-            .fold(Money(0, allocated.currency)) { acc, e -> acc + e.amount }
-        evaluateBudget(allocated, spent)
-    }
+        ?: return evaluateBudget(Money(0, currency), spentSoFar)
+    return weeklyEvaluations(services, householdId, week.start.year, week.start.monthNumber, amount)
+        .find { (w, _) -> date >= w.start && date <= w.endInclusive }
+        ?.second ?: evaluateBudget(Money(0, currency), spentSoFar)
+}
+
+/** Only computed when [et.core.model.Household.settlementEnabled] — empty otherwise, matching a household that never opted in. */
+private suspend fun householdBalances(services: AppServices, household: et.core.model.Household): Pair<Map<String, MoneyDto>, List<SuggestedTransferDto>> {
+    if (!household.settlementEnabled) return emptyMap<String, MoneyDto>() to emptyList()
+    val members = services.repository.members(household.id)
+    val expenses = services.repository.householdExpensesBetween(household.id, 0, Long.MAX_VALUE)
+    val settlements = services.repository.householdSettlements(household.id)
+    val currency = household.defaultMonthlyBudget?.currency ?: "INR"
+    val balances = et.core.domain.HouseholdBalances.netBalances(members.map { it.id }, expenses, settlements, currency)
+    val suggestions = et.core.domain.DebtSimplification.simplify(balances)
+    return balances.mapValues { it.value.toDto() } to suggestions.map { it.toDto() }
 }
 
 private suspend fun tripEvaluation(services: AppServices, tripId: String, budget: Money): et.core.domain.BudgetEvaluation {
@@ -101,13 +127,20 @@ private fun Route.devices(services: AppServices) {
         get {
             call.respond(services.pairedDevices.all().map { it.toDto() })
         }
-        // Pairing — only ever called right after scanning "Add Android
-        // Device" on this machine's own screen. Always mints a fresh
-        // pairingKey, invalidating whatever key (if any) that deviceId had
-        // before, so re-pairing after a removal is exactly how a phone
-        // gets back in — not a silent heartbeat.
+        // Pairing — only ever called right after scanning a Kharcha QR code
+        // shown on this machine's own screen. Requires the single-use
+        // pairingSecret that QR embedded (see PairingSession/JoinInvite.kt) —
+        // without this check, any device that could merely reach this
+        // server's HTTP port on the LAN could register itself without ever
+        // having scanned anything. Always mints a fresh pairingKey,
+        // invalidating whatever key (if any) that deviceId had before, so
+        // re-pairing after a removal is exactly how a phone gets back in —
+        // not a silent heartbeat.
         post {
             val request = call.receive<RegisterDeviceRequest>()
+            if (!PairingSession.consume(request.pairingSecret)) {
+                return@post call.respond(HttpStatusCode.Forbidden, mapOf("error" to "invalid or expired pairing code"))
+            }
             val device = services.pairedDevices.pair(request.id, request.label, Clock.System.now().toEpochMilliseconds())
             call.respond(HttpStatusCode.Created, device.toPairResponse())
         }
@@ -152,7 +185,16 @@ private fun Route.households(services: AppServices) {
                     ?: return@get call.respond(HttpStatusCode.NotFound)
                 val categories = services.repository.categories(householdId)
                 val members = services.repository.members(householdId)
-                call.respond(HouseholdResponse(household.toDto(), categories.map { it.toDto() }, members.map { it.toDto() }))
+                val (balances, suggestions) = householdBalances(services, household)
+                call.respond(
+                    HouseholdResponse(
+                        household.toDto(),
+                        categories.map { it.toDto() },
+                        members.map { it.toDto() },
+                        balances,
+                        suggestions,
+                    ),
+                )
             }
 
             put {
@@ -163,6 +205,7 @@ private fun Route.households(services: AppServices) {
                 val updated = existing.copy(
                     name = request.name,
                     defaultMonthlyBudget = request.defaultMonthlyBudget?.toModel(),
+                    settlementEnabled = request.settlementEnabled,
                 )
                 services.repository.saveHousehold(updated)
                 call.respond(updated.toDto())
@@ -208,6 +251,24 @@ private fun Route.households(services: AppServices) {
                 }
             }
 
+            route("/settlements") {
+                post {
+                    val householdId = call.parameters["householdId"]!!
+                    val household = services.repository.household(householdId)
+                        ?: return@post call.respond(HttpStatusCode.NotFound)
+                    val request = call.receive<RecordHouseholdSettlementRequest>()
+                    services.recordHouseholdSettlement(
+                        householdId = householdId,
+                        fromMemberId = request.fromMemberId,
+                        toMemberId = request.toMemberId,
+                        amount = Money(request.amountMinorUnits, request.currency),
+                        settledAt = Clock.System.now().toEpochMilliseconds(),
+                    )
+                    val (balances, suggestions) = householdBalances(services, household)
+                    call.respond(HttpStatusCode.Created, HouseholdSettlementsResponse(balances, suggestions))
+                }
+            }
+
             route("/budgets") {
                 get("/{year}/{month}") {
                     val householdId = call.parameters["householdId"]!!
@@ -226,17 +287,18 @@ private fun Route.households(services: AppServices) {
                     val monthlyEvaluation = effective.amount?.let { evaluateBudget(it, monthSpent) }
 
                     val effectiveAmount = effective.amount
-                    val weeks = weeksInMonth(year, month).map { week ->
-                        val evaluation = if (effectiveAmount == null) {
-                            BudgetEvaluationDto("OK", MoneyDto(0, currency), MoneyDto(0, currency), MoneyDto(0, currency))
-                        } else {
-                            val allocated = WeeklyBudget.weekAllocation(effectiveAmount, year, month, week)
-                            val spent = services.repository
-                                .householdExpensesBetween(householdId, week.start.startOfDayMillis(), week.endInclusive.exclusiveEndMillis())
-                                .fold(Money(0, currency)) { acc, e -> acc + e.amount }
-                            evaluateBudget(allocated, spent).toDto()
+                    val weeks = if (effectiveAmount == null) {
+                        WeeklyBudget.weeksInMonth(year, month).map { week ->
+                            WeekEvaluationDto(
+                                week.start.toString(),
+                                week.endInclusive.toString(),
+                                BudgetEvaluationDto("OK", MoneyDto(0, currency), MoneyDto(0, currency), MoneyDto(0, currency)),
+                            )
                         }
-                        WeekEvaluationDto(week.start.toString(), week.endInclusive.toString(), evaluation)
+                    } else {
+                        weeklyEvaluations(services, householdId, year, month, effectiveAmount).map { (week, evaluation) ->
+                            WeekEvaluationDto(week.start.toString(), week.endInclusive.toString(), evaluation.toDto())
+                        }
                     }
                     call.respond(
                         MonthBudgetResponse(
@@ -322,6 +384,37 @@ private fun Route.households(services: AppServices) {
                         call.respond(HttpStatusCode.NoContent)
                     }
                 }
+            }
+
+            // Windows-only spending trends (see Design/README's "Windows app" section) —
+            // never exposed to Android, which has no equivalent screen.
+            get("/trend") {
+                val householdId = call.parameters["householdId"]!!
+                val household = services.repository.household(householdId)
+                    ?: return@get call.respond(HttpStatusCode.NotFound)
+                val monthsBack = call.parameters["months"]?.toIntOrNull()?.coerceIn(1, 24) ?: 6
+                val currency = household.defaultMonthlyBudget?.currency ?: "INR"
+                val t = today()
+                val months = (monthsBack - 1 downTo 0).map { offset ->
+                    val total = t.monthNumber - 1 - offset
+                    val year = t.year + Math.floorDiv(total, 12)
+                    val month = Math.floorMod(total, 12) + 1
+                    year to month
+                }
+                val monthlySpend = months.map { (year, month) ->
+                    val range = WeeklyBudget.monthRange(year, month)
+                    val expenses = services.repository.householdExpensesBetween(
+                        householdId,
+                        range.start.startOfDayMillis(),
+                        range.endInclusive.exclusiveEndMillis(),
+                    )
+                    val total = expenses.fold(Money(0, currency)) { acc, e -> acc + e.amount }
+                    val byCategory = expenses.groupBy { it.categoryId }
+                        .mapValues { (_, es) -> es.fold(Money(0, currency)) { acc, e -> acc + e.amount } }
+                    MonthlySpendDto(year, month, total.toDto(), byCategory.mapValues { it.value.toDto() })
+                }
+                val categories = services.repository.categories(householdId).associate { it.id to it.name }
+                call.respond(SpendingTrendResponse(monthlySpend, categories))
             }
         }
     }

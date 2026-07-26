@@ -28,6 +28,7 @@ data class HouseholdDto(
     val name: String,
     val defaultMonthlyBudget: MoneyDto? = null,
     val monthEvaluation: BudgetEvaluationDto? = null,
+    val settlementEnabled: Boolean = false,
 )
 
 @Serializable
@@ -37,13 +38,31 @@ data class CategoryDto(val id: String, val name: String, val icon: String)
 data class MemberDto(val id: String, val displayName: String)
 
 @Serializable
-data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>, val members: List<MemberDto>)
+data class HouseholdResponse(
+    val household: HouseholdDto,
+    val categories: List<CategoryDto>,
+    val members: List<MemberDto>,
+    /** Only populated when [HouseholdDto.settlementEnabled] — computed server-side since it needs every member's settlement history, not just this device's local expenses. */
+    val balances: Map<String, MoneyDto> = emptyMap(),
+    val suggestedSettlements: List<SuggestedTransferDto> = emptyList(),
+)
+
+@Serializable
+data class RecordHouseholdSettlementRequest(
+    val fromMemberId: String,
+    val toMemberId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+@Serializable
+data class HouseholdSettlementsResponse(val balances: Map<String, MoneyDto>, val suggestedSettlements: List<SuggestedTransferDto>)
 
 @Serializable
 data class CreateHouseholdRequest(val name: String)
 
 @Serializable
-data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null)
+data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null, val settlementEnabled: Boolean = false)
 
 @Serializable
 data class AddCategoryRequest(val name: String)
@@ -154,7 +173,7 @@ data class AddTripExpenseRequest(
 )
 
 @Serializable
-data class RegisterDeviceRequest(val id: String, val label: String)
+data class RegisterDeviceRequest(val id: String, val label: String, val pairingSecret: String)
 
 @Serializable
 data class PairDeviceResponse(val id: String, val label: String, val pairingKey: String, val pairedAt: Long, val lastSeenAt: Long)

@@ -58,6 +58,35 @@ object BudgetMath {
         return totalMinorUnits * week.lengthDays / monthLength
     }
 
+    /**
+     * Each week's plain [weekAllocation], except a closed week (its
+     * [DateRange.endInclusive] is before [today]) has its under/overspend
+     * carried forward: the surplus or deficit from every closed week is
+     * summed and split equally across the weeks still open (the current
+     * week plus any future ones), on top of their own base allocation. A
+     * week in progress never has its own budget shift mid-week — rollover
+     * only lands once the prior week has actually closed. [weeks] and
+     * [spentByWeek] must be parallel lists. Hand-ported from Core's
+     * `WeeklyBudget.rolloverAdjustedAllocations` — keep in sync by hand.
+     */
+    fun rolloverAdjustedAllocations(totalMinorUnits: Long, year: Int, month: Int, weeks: List<DateRange>, spentByWeek: List<Long>, today: LocalDate): List<Long> {
+        require(weeks.size == spentByWeek.size) { "weeks and spentByWeek must be parallel lists" }
+        val baseAllocations = weeks.map { weekAllocation(totalMinorUnits, year, month, it) }
+        val closedIndices = weeks.indices.filter { weeks[it].endInclusive.isBefore(today) }
+        val openIndices = weeks.indices.filter { it !in closedIndices }
+        if (openIndices.isEmpty()) return baseAllocations
+        val rollover = closedIndices.sumOf { baseAllocations[it] - spentByWeek[it] }
+        val share = rollover / openIndices.size
+        val remainder = rollover - share * openIndices.size
+        return weeks.indices.map { i ->
+            if (i in openIndices) {
+                baseAllocations[i] + share + if (i == openIndices.last()) remainder else 0
+            } else {
+                baseAllocations[i]
+            }
+        }
+    }
+
     fun evaluateBudget(allocatedMinorUnits: Long, spentMinorUnits: Long, currency: String, nearingThreshold: Double = 0.8): BudgetEvaluation {
         val status = when {
             spentMinorUnits >= allocatedMinorUnits -> BudgetStatus.OVER
