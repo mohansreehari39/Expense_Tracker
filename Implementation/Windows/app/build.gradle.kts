@@ -92,6 +92,16 @@ compose.desktop {
             description = "Kharcha — household and trip expense tracker"
             vendor = "Kharcha"
 
+            // Compose Desktop's automatic jlink module detection (jdeps
+            // analysis of the app's jars) misses java.sql — the SQLite JDBC
+            // driver (java.sql.DriverManager) is only reached via reflection/
+            // ServiceLoader, which jdeps can't see statically. Without this,
+            // the packaged exe's bundled runtime throws
+            // `NoClassDefFoundError: java/sql/DriverManager` on startup
+            // ("Failed to launch JVM"). java.naming is a common JDBC-driver
+            // dependency too, included preemptively for the same reason.
+            modules("java.sql", "java.naming")
+
             windows {
                 menu = true
                 shortcut = true
