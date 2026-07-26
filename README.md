@@ -42,7 +42,7 @@ each item.
 
 **Status note:** everything below compiles and was reasoned through
 carefully, but the planned end-to-end live-device test pass covering this
-whole batch was interrupted by the installer bug (see the unchecked item
+whole batch was interrupted by the installer bug (see "V1 — remaining"
 below) before it could run — so "completed" here means "implemented,
 compiles, not yet re-verified live this session." Re-run the full test
 pass next session once the installer launches cleanly.
@@ -78,23 +78,6 @@ pass next session once the installer launches cleanly.
       recording is still not wired up — see V2 list below.)
 - [x] Text wrapping fixes (Edit/Delete buttons, budget figure rows) on
       Android.
-- [ ] **Windows installer (`setup.exe`) — builds, but the installed app
-      doesn't launch yet; needs a clean re-verify.** `compose.desktop.
-      application.nativeDistributions` was already configured;
-      `gradlew.bat :app:packageExe` (WiX Toolset v3.14 on this machine)
-      produces `Kharcha-0.1.0.exe`, and running it does install to
-      `%LOCALAPPDATA%\Kharcha`. But the installed `runtime\bin\` is
-      missing `java.exe` — most likely because a `Stop-Process -Force
-      -Name java` cleanup step (run routinely between Gradle builds in
-      this session) killed the JDK's `jlink` subprocess mid-way through
-      `createRuntimeImage`, corrupting that task's cached output without
-      Gradle noticing (its up-to-date check doesn't verify the runtime
-      image's actual completeness, just that the output path exists).
-      Next session: `Remove-Item -Recurse -Force app\build\compose`
-      before re-running `packageExe` (already kicked off, didn't finish
-      before this session ended — re-run and confirm `Kharcha.exe`
-      actually launches before considering this done), and going forward
-      never kill `java.exe` while a Windows packaging task is running.
 - [x] **In-app upgrade check** — `UpdateChecker` hits GitHub's public
       REST API directly over HTTPS (`GET /repos/{owner}/{repo}/releases/
       latest`) — no `gh` CLI dependency, since that only exists in this
@@ -161,6 +144,31 @@ pass next session once the installer launches cleanly.
       `createTrip`, then links the local row — existing members/
       participants are pushed and matched back by name so they resolve to
       the same remote row instead of duplicating.
+
+### V1 — remaining
+
+- [ ] **Windows installer (`setup.exe`) — builds, but the installed app
+      doesn't launch yet; needs a clean re-verify.** `compose.desktop.
+      application.nativeDistributions` was already configured;
+      `gradlew.bat :app:packageExe` (WiX Toolset v3.14 on this machine)
+      produces `Kharcha-0.1.0.exe`, and running it does install to
+      `%LOCALAPPDATA%\Kharcha`. But the installed `runtime\bin\` is
+      missing `java.exe` — most likely because a `Stop-Process -Force
+      -Name java` cleanup step (run routinely between Gradle builds in
+      this session) killed the JDK's `jlink` subprocess mid-way through
+      `createRuntimeImage`, corrupting that task's cached output without
+      Gradle noticing (its up-to-date check doesn't verify the runtime
+      image's actual completeness, just that the output path exists).
+      Next session: `Remove-Item -Recurse -Force app\build\compose`
+      before re-running `packageExe` (already kicked off, didn't finish
+      before this session ended — re-run and confirm `Kharcha.exe`
+      actually launches before considering this done), and going forward
+      never kill `java.exe` while a Windows packaging task is running.
+- [ ] **Full live-device test pass** for the entire V1 batch above,
+      blocked on the installer item directly above — pairing with the new
+      one-time secret, computer-name QR display, Android-created
+      household syncing to Windows, spending trends screen, settle
+      button, budget figure rows.
 
 ### V2 — planned
 
