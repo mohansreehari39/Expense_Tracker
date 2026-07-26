@@ -38,10 +38,11 @@ data class HouseholdDto(
     val name: String,
     val defaultMonthlyBudget: MoneyDto? = null,
     val monthEvaluation: BudgetEvaluationDto? = null,
+    val settlementEnabled: Boolean = false,
 )
 
 fun Household.toDto(monthEvaluation: BudgetEvaluationDto? = null) =
-    HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), monthEvaluation)
+    HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), monthEvaluation, settlementEnabled)
 
 @Serializable
 data class CategoryDto(val id: String, val name: String, val icon: String)
@@ -54,7 +55,14 @@ data class MemberDto(val id: String, val displayName: String)
 fun Member.toDto() = MemberDto(id, displayName)
 
 @Serializable
-data class HouseholdResponse(val household: HouseholdDto, val categories: List<CategoryDto>, val members: List<MemberDto>)
+data class HouseholdResponse(
+    val household: HouseholdDto,
+    val categories: List<CategoryDto>,
+    val members: List<MemberDto>,
+    /** Only populated when [HouseholdDto.settlementEnabled] — equal-split net balance per member, mirroring [TripDetailResponse.balances]. */
+    val balances: Map<String, MoneyDto> = emptyMap(),
+    val suggestedSettlements: List<SuggestedTransferDto> = emptyList(),
+)
 
 @Serializable
 data class AddCategoryRequest(val name: String)
@@ -66,7 +74,7 @@ data class AddMemberRequest(val displayName: String)
 data class CreateHouseholdRequest(val name: String)
 
 @Serializable
-data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null)
+data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: MoneyDto? = null, val settlementEnabled: Boolean = false)
 
 @Serializable
 data class MonthlyBudgetDto(val id: String, val year: Int, val month: Int, val totalAmount: MoneyDto)
@@ -115,6 +123,24 @@ data class RecordExpenseRequest(
 
 @Serializable
 data class RecordExpenseResponse(val expense: HouseholdExpenseDto, val weekEvaluation: BudgetEvaluationDto)
+
+/** One month's totals for the Windows-only spending trends screen — [byCategory] keyed by categoryId, resolved to names via [SpendingTrendResponse.categoryNames] (a category can be renamed/archived after the fact, so names aren't baked in per-month). */
+@Serializable
+data class MonthlySpendDto(val year: Int, val month: Int, val total: MoneyDto, val byCategory: Map<String, MoneyDto>)
+
+@Serializable
+data class SpendingTrendResponse(val months: List<MonthlySpendDto>, val categoryNames: Map<String, String>)
+
+@Serializable
+data class RecordHouseholdSettlementRequest(
+    val fromMemberId: String,
+    val toMemberId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+@Serializable
+data class HouseholdSettlementsResponse(val balances: Map<String, MoneyDto>, val suggestedSettlements: List<SuggestedTransferDto>)
 
 // -- Trips / Activities -----------------------------------------------------
 
@@ -199,7 +225,7 @@ data class PairDeviceResponse(val id: String, val label: String, val pairingKey:
 fun et.windows.db.PairedDevice.toPairResponse() = PairDeviceResponse(id, label, pairingKey, pairedAt, lastSeenAt)
 
 @Serializable
-data class RegisterDeviceRequest(val id: String, val label: String)
+data class RegisterDeviceRequest(val id: String, val label: String, val pairingSecret: String)
 
 @Serializable
 data class HeartbeatDeviceRequest(val pairingKey: String, val label: String)

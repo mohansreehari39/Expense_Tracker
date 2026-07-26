@@ -79,7 +79,11 @@ fun FrameWindowScope.WindowTitleBar(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Image(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text("Kharcha", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text(
+                if (et.windows.KharchaConfig.isDev) "Kharcha (dev)" else "Kharcha",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
 
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

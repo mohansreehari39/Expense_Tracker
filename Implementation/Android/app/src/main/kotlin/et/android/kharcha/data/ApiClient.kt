@@ -4,8 +4,10 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -18,14 +20,25 @@ import kotlinx.serialization.json.Json
  * Talks to a Windows app's REST server over the LAN — same API surface
  * `Implementation/Windows/.../ui/ApiClient.kt` uses against its own local
  * server. [baseUrl] is set once the user connects (manual entry or QR),
- * see [et.android.kharcha.data.ConnectionStore].
+ * see [et.android.kharcha.data.ConnectionStore]. [deviceId]/[pairingKey],
+ * when known, are attached to every request as headers — the server
+ * requires them on everything except the pairing/heartbeat endpoints
+ * themselves (see Windows' device-auth interceptor in `Server.kt`). Both
+ * are null for the very first request of a device-pairing flow, before a
+ * pairingKey exists yet.
  */
-class ApiClient(private val baseUrl: String) {
+class ApiClient(private val baseUrl: String, private val deviceId: String? = null, private val pairingKey: String? = null) {
     private val client = HttpClient(Android) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         // Explicit rather than relying on the engine default — DeviceRevokedException
         // detection in SyncEngine depends on non-2xx responses actually throwing.
         expectSuccess = true
+        defaultRequest {
+            if (deviceId != null && pairingKey != null) {
+                header("X-Device-Id", deviceId)
+                header("X-Pairing-Key", pairingKey)
+            }
+        }
     }
 
     // -- Households -----------------------------------------------------------
@@ -62,6 +75,12 @@ class ApiClient(private val baseUrl: String) {
     suspend fun archiveMember(householdId: String, memberId: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
     }
+
+    suspend fun recordHouseholdSettlement(householdId: String, request: RecordHouseholdSettlementRequest): HouseholdSettlementsResponse =
+        client.post("$baseUrl/api/v1/households/$householdId/settlements") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
@@ -138,11 +157,11 @@ class ApiClient(private val baseUrl: String) {
 
     // -- Device pairing -----------------------------------------------------
 
-    /** Called only right after scanning "Add Android Device" — mints a fresh pairingKey server-side, invalidating any previous one for this deviceId. */
-    suspend fun pairDevice(id: String, label: String): PairDeviceResponse =
+    /** Called only right after scanning a Kharcha QR — mints a fresh pairingKey server-side, invalidating any previous one for this deviceId. [pairingSecret] is the single-use secret that QR embedded; the server rejects registration without it (see Windows' `PairingSession`). */
+    suspend fun pairDevice(id: String, label: String, pairingSecret: String): PairDeviceResponse =
         client.post("$baseUrl/api/v1/devices") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterDeviceRequest(id, label))
+            setBody(RegisterDeviceRequest(id, label, pairingSecret))
         }.body()
 
     /**

@@ -64,6 +64,19 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Runs a second, independent instance for testing alongside a real
+// installed/running one — separate port and data directory (see
+// KharchaConfig.kt), selected via a JVM system property passed only to
+// this task, never an OS environment variable and never present in the
+// packaged installer. Usage: `gradlew.bat :app:runDev` from Windows.
+tasks.register<JavaExec>("runDev") {
+    group = "application"
+    description = "Runs Kharcha with a separate dev port/data directory, for testing alongside a real installed instance."
+    mainClass.set("et.windows.MainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    systemProperty("kharcha.dev", "true")
+}
+
 compose.desktop {
     application {
         mainClass = "et.windows.MainKt"

@@ -33,10 +33,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.BudgetMath
 import et.android.kharcha.data.DateRange
 import et.android.kharcha.data.LocalRepository
+import et.android.kharcha.data.RecordHouseholdSettlementRequest
+import et.android.kharcha.data.SuggestedTransferDto
+import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import kotlinx.coroutines.launch
@@ -53,8 +57,7 @@ private fun inRange(occurredAt: Long, range: DateRange): Boolean {
 }
 
 @Composable
-fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) {
-    var household by remember { mutableStateOf<HouseholdEntity?>(null) }
+fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, household: HouseholdEntity?) {
     val categories by repo.observeCategories(householdId).collectAsState(initial = emptyList())
     val members by repo.observeMembers(householdId).collectAsState(initial = emptyList())
     val expenses by repo.observeHouseholdExpenses(householdId).collectAsState(initial = emptyList())
@@ -62,17 +65,54 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) 
     var showAddExpense by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
     var expenseToDelete by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
+    var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransferDto>>(emptyList()) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val today = remember { LocalDate.now() }
 
     LaunchedEffect(householdId) {
-        household = repo.household(householdId)
         repo.ensureMyMembership(householdId, myName)
     }
 
     val currentHousehold = household
     val currency = currentHousehold?.currency ?: "INR"
     val myMemberId = members.find { it.isMe }?.id
+
+    suspend fun refreshBalances() {
+        val household = currentHousehold
+        if (household == null || !household.settlementEnabled) {
+            balances = emptyMap()
+            suggestedSettlements = emptyList()
+            return
+        }
+        val pairedServerId = household.pairedServerId
+        val remoteId = household.remoteId
+        val response = if (pairedServerId != null && remoteId != null) {
+            val server = repo.pairedServer(pairedServerId)
+            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+            api?.let { runCatching { it.household(remoteId) }.getOrNull() }
+        } else {
+            null
+        }
+        if (response != null) {
+            // response.balances is keyed by remote member id (the server has no concept of our local ids) — remap to local ids so this map lines up with the same `members` list the unlinked fallback below keys against.
+            val currentMembers = repo.members(householdId)
+            balances = response.balances.mapNotNull { (remoteMemberId, money) ->
+                val localId = currentMembers.find { it.remoteId == remoteMemberId }?.id ?: return@mapNotNull null
+                localId to money.minorUnits
+            }.toMap()
+            suggestedSettlements = response.suggestedSettlements
+        } else {
+            // Unlinked household, or the server couldn't be reached — fall back to a local, settlement-blind fold.
+            balances = repo.householdBalances(householdId)
+            suggestedSettlements = emptyList()
+        }
+    }
+
+    LaunchedEffect(householdId, members, expenses, currentHousehold?.settlementEnabled, currentHousehold?.pairedServerId) {
+        refreshBalances()
+    }
 
     val monthExpenses = expenses.filter { occurredOn(it.occurredAt).monthValue == today.monthValue && occurredOn(it.occurredAt).year == today.year }
     val monthEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let {
@@ -87,8 +127,10 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) 
     val currentWeek = weeks.getOrNull(weekIndex)
     val weekEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
         currentWeek?.let { week ->
-            val allocated = BudgetMath.weekAllocation(budget, today.year, today.monthValue, week)
-            val spent = monthExpenses.filter { inRange(it.occurredAt, week) }.sumOf { it.amountMinorUnits }
+            val spentByWeek = weeks.map { w -> monthExpenses.filter { inRange(it.occurredAt, w) }.sumOf { it.amountMinorUnits } }
+            val allocations = BudgetMath.rolloverAdjustedAllocations(budget, today.year, today.monthValue, weeks, spentByWeek, today)
+            val allocated = allocations[weekIndex]
+            val spent = spentByWeek[weekIndex]
             BudgetMath.evaluateBudget(allocated, spent, currency)
         }
     }
@@ -123,6 +165,65 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) 
                     }
                 }
 
+                if (currentHousehold?.settlementEnabled == true) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Balances", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp)) {
+                            members.forEach { member ->
+                                val balance = balances[member.id]
+                                val label = when {
+                                    balance == null || balance == 0L -> "settled up"
+                                    balance > 0 -> "is owed ${formatMoney(balance, currency)}"
+                                    else -> "owes ${formatMoney(-balance, currency)}"
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(member.displayName)
+                                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    if (suggestedSettlements.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("Suggested Settlements", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp)) {
+                                suggestedSettlements.forEach { s ->
+                                    // s.fromParticipantId/toParticipantId are remote member ids (this list comes straight from the server's response) — never local ids.
+                                    val fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
+                                    val toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("$fromName → $toName: ${formatMoney(s.amount)}", modifier = Modifier.weight(1f))
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                val remoteId = currentHousehold?.remoteId
+                                                val pairedServerId = currentHousehold?.pairedServerId
+                                                if (remoteId != null && pairedServerId != null) {
+                                                    val server = repo.pairedServer(pairedServerId)
+                                                    val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+                                                    api?.let {
+                                                        runCatching {
+                                                            it.recordHouseholdSettlement(
+                                                                remoteId,
+                                                                RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                refreshBalances()
+                                            }
+                                        }) { Text("Settle") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(24.dp))
                 Text("Recent Expenses", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
@@ -136,7 +237,7 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String) 
                 val paidByName = members.find { it.id == expense.paidByMemberId }?.displayName ?: expense.paidByMemberId
                 Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                     Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column {
+                        Column(Modifier.weight(1f)) {
                             Text(categoryName, style = MaterialTheme.typography.bodyLarge)
                             Text(
                                 "Paid by $paidByName · ${formatExpenseDate(expense.occurredAt)}",

@@ -10,12 +10,15 @@ import et.windows.server.CreateTripRequest
 import et.windows.server.HouseholdDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
+import et.windows.server.HouseholdSettlementsResponse
 import et.windows.server.MemberDto
 import et.windows.server.MonthBudgetResponse
 import et.windows.server.PairedDeviceDto
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
+import et.windows.server.RecordHouseholdSettlementRequest
 import et.windows.server.SetBudgetRequest
+import et.windows.server.SpendingTrendResponse
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripDto
 import et.windows.server.TripExpenseDto
@@ -81,6 +84,12 @@ class ApiClient(private val baseUrl: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
     }
 
+    suspend fun recordHouseholdSettlement(householdId: String, request: RecordHouseholdSettlementRequest): HouseholdSettlementsResponse =
+        client.post("$baseUrl/api/v1/households/$householdId/settlements") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
+
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
 
@@ -93,6 +102,9 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun expenses(householdId: String, year: Int, month: Int): List<HouseholdExpenseDto> =
         client.get("$baseUrl/api/v1/households/$householdId/expenses?year=$year&month=$month").body()
+
+    suspend fun spendingTrend(householdId: String, months: Int = 6): SpendingTrendResponse =
+        client.get("$baseUrl/api/v1/households/$householdId/trend?months=$months").body()
 
     suspend fun recordExpense(householdId: String, request: RecordExpenseRequest): RecordExpenseResponse =
         client.post("$baseUrl/api/v1/households/$householdId/expenses") {

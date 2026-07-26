@@ -9,6 +9,7 @@ import et.core.model.Hlc
 import et.core.model.HlcClock
 import et.core.model.Household
 import et.core.model.HouseholdExpense
+import et.core.model.HouseholdSettlement
 import et.core.model.Member
 import et.core.model.Money
 import et.core.model.MonthlyBudget
@@ -55,6 +56,7 @@ class SqlDelightRepository(
             createdAt = household.createdAt,
             defaultBudgetAmountMinorUnits = household.defaultMonthlyBudget?.minorUnits,
             defaultBudgetCurrency = household.defaultMonthlyBudget?.currency,
+            settlementEnabled = if (household.settlementEnabled) 1L else 0L,
         )
         logOp(EntityType.HOUSEHOLD, household.id, mapOf("name" to JsonPrimitive(household.name)))
     }
@@ -63,7 +65,7 @@ class SqlDelightRepository(
         val amount = row.defaultBudgetAmountMinorUnits
         val currency = row.defaultBudgetCurrency
         val defaultBudget = if (amount != null && currency != null) Money(amount, currency) else null
-        return Household(row.id, row.name, row.createdAt, defaultBudget)
+        return Household(row.id, row.name, row.createdAt, defaultBudget, settlementEnabled = row.settlementEnabled != 0L)
     }
 
     override suspend fun categories(householdId: String): List<Category> = withContext(Dispatchers.IO) {
@@ -380,6 +382,34 @@ class SqlDelightRepository(
             note = settlement.note,
         )
         logOp(EntityType.SETTLEMENT, settlement.id, mapOf("amountMinorUnits" to JsonPrimitive(settlement.amount.minorUnits)))
+    }
+
+    override suspend fun householdSettlements(householdId: String): List<HouseholdSettlement> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholdSettlements(householdId).executeAsList().map {
+            HouseholdSettlement(
+                it.id,
+                it.householdId,
+                it.fromMemberId,
+                it.toMemberId,
+                Money(it.amountMinorUnits, it.currency),
+                it.settledAt,
+                it.note,
+            )
+        }
+    }
+
+    override suspend fun saveHouseholdSettlement(settlement: HouseholdSettlement): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.insertHouseholdSettlement(
+            id = settlement.id,
+            householdId = settlement.householdId,
+            fromMemberId = settlement.fromMemberId,
+            toMemberId = settlement.toMemberId,
+            amountMinorUnits = settlement.amount.minorUnits,
+            currency = settlement.amount.currency,
+            settledAt = settlement.settledAt,
+            note = settlement.note,
+        )
+        logOp(EntityType.HOUSEHOLD_SETTLEMENT, settlement.id, mapOf("amountMinorUnits" to JsonPrimitive(settlement.amount.minorUnits)))
     }
 
     override suspend fun devices(): List<Device> = withContext(Dispatchers.IO) {

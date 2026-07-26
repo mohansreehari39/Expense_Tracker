@@ -5,10 +5,12 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
 /**
- * Mirrors Implementation/Windows/.../ui/JoinInvite.kt's payload shape. As
- * noted there, this is a plain unauthenticated placeholder — not the real
- * pairing handshake in Core/sync/Pairing.kt — good enough to connect to a
- * server and deep-link into a household/activity from one QR scan.
+ * Mirrors Implementation/Windows/.../ui/JoinInvite.kt's payload shape.
+ * [pairingSecret] is the single-use secret that QR's server minted — must
+ * be presented back to `POST /devices` (see `ApiClient.pairDevice`) or the
+ * server rejects the registration; see `PairingSession.kt` on the Windows
+ * side for why this exists (prevents an unpaired device from registering
+ * itself without ever having scanned a real QR).
  */
 @Serializable
 data class JoinInvitePayload(
@@ -17,6 +19,7 @@ data class JoinInvitePayload(
     val name: String,
     val host: String,
     val port: Int,
+    val pairingSecret: String,
 ) {
     val serverBaseUrl: String get() = "http://$host:$port"
 }

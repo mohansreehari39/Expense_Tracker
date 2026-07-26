@@ -17,6 +17,8 @@ data class Household(
     val name: String,
     val createdAt: Long,
     val defaultMonthlyBudget: Money? = null,
+    /** Opt-in per-member balance tracking (equal-split net balance, "who owes whom") — mirrors the trip/activity balance feature, for roommate-style households where members don't share one pot. See [et.core.domain.HouseholdBalances]. */
+    val settlementEnabled: Boolean = false,
 )
 
 /**
@@ -109,6 +111,17 @@ data class Settlement(
     val tripId: String,
     val fromParticipantId: String,
     val toParticipantId: String,
+    val amount: Money,
+    val settledAt: Long,
+    val note: String = "",
+)
+
+/** The household equivalent of [Settlement] — records an actual payment a member made to settle up part of their [et.core.domain.HouseholdBalances] balance. */
+data class HouseholdSettlement(
+    val id: String,
+    val householdId: String,
+    val fromMemberId: String,
+    val toMemberId: String,
     val amount: Money,
     val settledAt: Long,
     val note: String = "",

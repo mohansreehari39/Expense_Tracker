@@ -13,6 +13,7 @@ import et.core.domain.EditHouseholdExpense
 import et.core.domain.EditTripExpenseWithSplit
 import et.core.domain.IdGenerator
 import et.core.domain.RecordHouseholdExpense
+import et.core.domain.RecordHouseholdSettlement
 import et.core.domain.Repository
 import et.core.domain.SetMonthlyBudget
 import et.windows.db.PairedDeviceStore
@@ -34,6 +35,7 @@ class AppServices(
     val archiveCategory = ArchiveCategory(repository)
     val addMember = AddMember(repository, idGenerator)
     val archiveMember = ArchiveMember(repository)
+    val recordHouseholdSettlement = RecordHouseholdSettlement(repository, idGenerator)
 
     val createTrip = CreateTrip(repository, idGenerator)
     val addTripExpenseWithSplit = AddTripExpenseWithSplit(repository, idGenerator)

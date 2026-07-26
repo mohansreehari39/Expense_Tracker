@@ -1,5 +1,6 @@
 package et.windows.server
 
+import et.windows.KharchaConfig
 import java.net.InetAddress
 import javax.jmdns.JmDNS
 import javax.jmdns.ServiceInfo
@@ -19,7 +20,7 @@ const val SERVICE_TYPE = "_expensetracker._tcp.local."
  */
 fun advertiseOnLan(port: Int): JmDNS? = runCatching {
     val jmdns = JmDNS.create(InetAddress.getLocalHost())
-    val serviceInfo = ServiceInfo.create(SERVICE_TYPE, "Kharcha", port, "Kharcha household expense tracker")
+    val serviceInfo = ServiceInfo.create(SERVICE_TYPE, KharchaConfig.serverDisplayName(), port, "Kharcha household expense tracker")
     jmdns.registerService(serviceInfo)
     jmdns
 }.getOrNull()

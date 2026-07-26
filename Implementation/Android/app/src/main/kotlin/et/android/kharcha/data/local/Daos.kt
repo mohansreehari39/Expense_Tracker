@@ -47,6 +47,9 @@ interface HouseholdDao {
     @Query("SELECT * FROM household WHERE pairedServerId IS NOT NULL")
     suspend fun getLinked(): List<HouseholdEntity>
 
+    @Query("SELECT * FROM household WHERE pairedServerId IS NULL")
+    suspend fun getUnlinked(): List<HouseholdEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(household: HouseholdEntity)
 }
@@ -58,6 +61,9 @@ interface CategoryDao {
 
     @Query("SELECT * FROM category WHERE householdId = :householdId")
     suspend fun getAll(householdId: String): List<CategoryEntity>
+
+    @Query("SELECT * FROM category WHERE id = :id")
+    suspend fun getById(id: String): CategoryEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(category: CategoryEntity)
@@ -82,6 +88,9 @@ interface MemberDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(members: List<MemberEntity>)
+
+    @Query("DELETE FROM member WHERE id = :id")
+    suspend fun delete(id: String)
 }
 
 @Dao
@@ -122,6 +131,9 @@ interface ActivityDao {
     @Query("SELECT * FROM activity WHERE pairedServerId IS NOT NULL")
     suspend fun getLinked(): List<ActivityEntity>
 
+    @Query("SELECT * FROM activity WHERE pairedServerId IS NULL")
+    suspend fun getUnlinked(): List<ActivityEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(activity: ActivityEntity)
 }
@@ -142,6 +154,9 @@ interface ParticipantDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(participants: List<ParticipantEntity>)
+
+    @Query("DELETE FROM participant WHERE id = :id")
+    suspend fun delete(id: String)
 }
 
 @Dao

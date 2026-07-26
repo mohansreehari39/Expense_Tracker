@@ -1,20 +1,24 @@
 package et.windows.ui
 
-import et.windows.server.DEFAULT_PORT
+import et.windows.KharchaConfig
+import et.windows.server.PairingSession
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * What the "Add via QR" button encodes today. This is deliberately NOT the
- * real pairing scheme designed in Core/sync/Pairing.kt — that two-step
- * exchange needs a second device to show its own pubkey first, which
- * there's nothing to test against until the Android app exists. This is a
- * plain, unauthenticated placeholder (server address + household/trip id
- * + name) just so the QR has real content to scan — enough for the
- * Android app to both connect to this server and deep-link into the right
- * household/activity in one scan; swap it for [et.core.sync.Pairing]'s
- * handshake once there's a real two-device exchange to build against.
+ * What every "Add via QR" button encodes today — server address + household
+ * /trip id + name, deep-linking the Android app straight into the right
+ * household/activity (or just the server, for device-only pairing) in one
+ * scan. Still NOT the full asymmetric two-step handshake designed in
+ * Core/sync/Pairing.kt (that needs a genuinely new two-scan UX on both
+ * apps, tracked separately) — but [pairingSecret] closes the concrete gap
+ * that mattered most in the meantime: without it, any device that could
+ * merely reach this server's HTTP port on the LAN could silently register
+ * itself via `POST /devices` without ever having scanned a QR at all. Every
+ * QR kind carries one because every kind can trigger a first-time device
+ * pairing (see Android's `joinScanLauncher`, which auto-pairs when joining
+ * a household/activity from a device that hasn't paired yet).
  */
 @Serializable
 data class JoinInvitePayload(
@@ -23,6 +27,7 @@ data class JoinInvitePayload(
     val name: String,
     val host: String,
     val port: Int,
+    val pairingSecret: String,
 )
 
 private val json = Json { ignoreUnknownKeys = true }
@@ -30,14 +35,16 @@ private val json = Json { ignoreUnknownKeys = true }
 fun encodeJoinInvite(payload: JoinInvitePayload): String = json.encodeToString(payload)
 
 fun joinInviteForHousehold(householdId: String, householdName: String) =
-    JoinInvitePayload(kind = "household", id = householdId, name = householdName, host = localNetworkAddress(), port = DEFAULT_PORT)
+    JoinInvitePayload(kind = "household", id = householdId, name = householdName, host = localNetworkAddress(), port = KharchaConfig.port, pairingSecret = PairingSession.issue())
 
 fun joinInviteForTrip(tripId: String, tripName: String) =
-    JoinInvitePayload(kind = "activity", id = tripId, name = tripName, host = localNetworkAddress(), port = DEFAULT_PORT)
+    JoinInvitePayload(kind = "activity", id = tripId, name = tripName, host = localNetworkAddress(), port = KharchaConfig.port, pairingSecret = PairingSession.issue())
 
 /**
  * Device-level pairing QR (see PairAndroidDeviceDialog.kt) — Android keys
- * a paired server by host:port, so [id]/[name] here are cosmetic only.
+ * a paired server by host:port, so [id] here is cosmetic only, but [name]
+ * is shown to the user mid-scan so they know which physical machine
+ * they're pairing to (see README V1 "identify the server by computer name").
  */
 fun joinInviteForServerPairing() =
-    JoinInvitePayload(kind = "server", id = "server", name = "Kharcha", host = localNetworkAddress(), port = DEFAULT_PORT)
+    JoinInvitePayload(kind = "server", id = "server", name = KharchaConfig.serverDisplayName(), host = localNetworkAddress(), port = KharchaConfig.port, pairingSecret = PairingSession.issue())

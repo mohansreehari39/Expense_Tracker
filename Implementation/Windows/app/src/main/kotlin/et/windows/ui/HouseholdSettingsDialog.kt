@@ -12,6 +12,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,11 +42,13 @@ fun HouseholdSettingsDialog(
     householdId: String,
     currentName: String,
     currentDefaultBudget: MoneyDto?,
+    currentSettlementEnabled: Boolean,
     onDismiss: () -> Unit,
-    onSave: (name: String, defaultBudget: MoneyDto?) -> Unit,
+    onSave: (name: String, defaultBudget: MoneyDto?, settlementEnabled: Boolean) -> Unit,
 ) {
     var name by remember { mutableStateOf(currentName) }
     var budgetText by remember { mutableStateOf(currentDefaultBudget?.let { (it.minorUnits / 100.0).toString() } ?: "") }
+    var settlementEnabled by remember { mutableStateOf(currentSettlementEnabled) }
     var members by remember { mutableStateOf<List<MemberDto>>(emptyList()) }
     var showAddMember by remember { mutableStateOf(false) }
     val currency = currentDefaultBudget?.currency ?: "INR"
@@ -84,6 +87,22 @@ fun HouseholdSettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Per-person settlement", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Track each member's equal-split balance — who owes whom — instead of a shared pot.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(checked = settlementEnabled, onCheckedChange = { settlementEnabled = it })
+                }
 
                 Row(
                     Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp),
@@ -125,7 +144,7 @@ fun HouseholdSettingsDialog(
                 enabled = name.isNotBlank() && budgetTextIsValid,
                 onClick = {
                     val defaultBudget = budgetMinorUnits?.let { MoneyDto(it, currency) }
-                    onSave(name.trim(), defaultBudget)
+                    onSave(name.trim(), defaultBudget, settlementEnabled)
                 },
             ) { Text("Save") }
         },
@@ -134,9 +153,14 @@ fun HouseholdSettingsDialog(
 
     if (showAddMember) {
         val existingIds = remember { members.map { it.id }.toSet() }
+        // Computed once per dialog show, not per recomposition — onPollForJoin
+        // below mutates state on every poll tick, which would otherwise
+        // re-issue a fresh PairingSession secret each time, invalidating the
+        // one embedded in the still-displayed QR before it's even scanned.
+        val qrPayload = remember { encodeJoinInvite(joinInviteForHousehold(householdId, currentName)) }
         AddPersonDialog(
             title = "Add Member",
-            qrPayload = encodeJoinInvite(joinInviteForHousehold(householdId, currentName)),
+            qrPayload = qrPayload,
             onDismiss = { showAddMember = false },
             onPollForJoin = {
                 val fresh = api.household(householdId).members

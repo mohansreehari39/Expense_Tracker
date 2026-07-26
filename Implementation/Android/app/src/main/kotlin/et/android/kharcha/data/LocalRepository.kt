@@ -67,6 +67,13 @@ class LocalRepository(context: Context) {
     fun observeHouseholds(): Flow<List<HouseholdEntity>> = db.householdDao().observeAll()
     suspend fun household(id: String): HouseholdEntity? = db.householdDao().get(id)
     suspend fun linkedHouseholds(): List<HouseholdEntity> = db.householdDao().getLinked()
+    suspend fun unlinkedHouseholds(): List<HouseholdEntity> = db.householdDao().getUnlinked()
+
+    /** Called by SyncEngine once a household created locally (never joined/paired) has been created on a server for the first time — from then on it syncs like any other linked household. */
+    suspend fun linkHousehold(householdId: String, pairedServerId: String, remoteId: String) {
+        val existing = db.householdDao().get(householdId) ?: return
+        db.householdDao().upsert(existing.copy(pairedServerId = pairedServerId, remoteId = remoteId))
+    }
 
     suspend fun createHousehold(name: String, myName: String): HouseholdEntity {
         val household = HouseholdEntity(
@@ -86,9 +93,55 @@ class LocalRepository(context: Context) {
         return household
     }
 
-    suspend fun setHouseholdBudget(householdId: String, amountMinorUnits: Long, currency: String) {
+    /** Rename/re-budget a household from Android — mirrors Windows' Household Settings dialog. Marks the edit pending if this household is linked, so SyncEngine pushes it before the next pull. */
+    suspend fun updateHouseholdConfig(householdId: String, name: String, budgetMinorUnits: Long?, currency: String, settlementEnabled: Boolean) {
         val existing = db.householdDao().get(householdId) ?: return
-        db.householdDao().upsert(existing.copy(defaultBudgetMinorUnits = amountMinorUnits, currency = currency))
+        val linked = existing.pairedServerId != null
+        db.householdDao().upsert(
+            existing.copy(
+                name = name,
+                defaultBudgetMinorUnits = budgetMinorUnits,
+                currency = currency,
+                settlementEnabled = settlementEnabled,
+                pendingConfigSync = linked,
+            ),
+        )
+    }
+
+    /** Net balance per member: what they paid minus their equal share — matches Core's HouseholdBalances for SplitMode.Equal. Only meaningful when the household has opted in via [HouseholdEntity.settlementEnabled]. */
+    suspend fun householdBalances(householdId: String): Map<String, Long> {
+        val members = members(householdId)
+        val expenses = householdExpenses(householdId)
+        val balances = members.associate { it.id to 0L }.toMutableMap()
+        for (expense in expenses) {
+            balances[expense.paidByMemberId] = (balances[expense.paidByMemberId] ?: 0L) + expense.amountMinorUnits
+            if (members.isNotEmpty()) {
+                val share = expense.amountMinorUnits / members.size
+                for (member in members) balances[member.id] = (balances[member.id] ?: 0L) - share
+            }
+        }
+        return balances
+    }
+
+    /** Rename/re-budget an activity from Android — mirrors Windows' Activity Settings dialog. */
+    suspend fun updateActivityConfig(activityId: String, name: String, budgetMinorUnits: Long, currency: String) {
+        val existing = db.activityDao().get(activityId) ?: return
+        val linked = existing.pairedServerId != null
+        db.activityDao().upsert(
+            existing.copy(name = name, budgetMinorUnits = budgetMinorUnits, currency = currency, pendingConfigSync = linked),
+        )
+    }
+
+    /** Called by SyncEngine once a locally-edited household's name/budget has been pushed to its linked server. */
+    suspend fun clearHouseholdConfigPending(householdId: String) {
+        val existing = db.householdDao().get(householdId) ?: return
+        db.householdDao().upsert(existing.copy(pendingConfigSync = false))
+    }
+
+    /** Called by SyncEngine once a locally-edited activity's name/budget has been pushed to its linked server. */
+    suspend fun clearActivityConfigPending(activityId: String) {
+        val existing = db.activityDao().get(activityId) ?: return
+        db.activityDao().upsert(existing.copy(pendingConfigSync = false))
     }
 
     fun observeCategories(householdId: String): Flow<List<CategoryEntity>> = db.categoryDao().observeActive(householdId)
@@ -103,9 +156,21 @@ class LocalRepository(context: Context) {
         return category
     }
 
+    /** Called by SyncEngine once a locally-created category (remoteId == null) has been pushed to a linked household's server. */
+    suspend fun markCategorySynced(id: String, remoteId: String) {
+        val category = db.categoryDao().getById(id) ?: return
+        db.categoryDao().upsert(category.copy(remoteId = remoteId))
+    }
+
     fun observeMembers(householdId: String): Flow<List<MemberEntity>> = db.memberDao().observeActive(householdId)
     suspend fun members(householdId: String): List<MemberEntity> = db.memberDao().getAll(householdId)
     suspend fun myMember(householdId: String): MemberEntity? = db.memberDao().getMe(householdId)
+    suspend fun hardDeleteMember(id: String) = db.memberDao().delete(id)
+
+    /** Called by SyncEngine once a member of a just-created-remotely household has been pushed, so it resolves to the same remote row instead of duplicating on the next pull. */
+    suspend fun markMemberSynced(member: MemberEntity, remoteId: String) {
+        db.memberDao().upsert(member.copy(remoteId = remoteId))
+    }
 
     suspend fun ensureMyMembership(householdId: String, myName: String, remoteId: String? = null): MemberEntity {
         myMember(householdId)?.let { return it }
@@ -164,6 +229,13 @@ class LocalRepository(context: Context) {
     fun observeActivities(): Flow<List<ActivityEntity>> = db.activityDao().observeAll()
     suspend fun activity(id: String): ActivityEntity? = db.activityDao().get(id)
     suspend fun linkedActivities(): List<ActivityEntity> = db.activityDao().getLinked()
+    suspend fun unlinkedActivities(): List<ActivityEntity> = db.activityDao().getUnlinked()
+
+    /** Called by SyncEngine once an activity created locally (never joined/paired) has been created on a server for the first time — from then on it syncs like any other linked activity. */
+    suspend fun linkActivity(activityId: String, pairedServerId: String, remoteId: String) {
+        val existing = db.activityDao().get(activityId) ?: return
+        db.activityDao().upsert(existing.copy(pairedServerId = pairedServerId, remoteId = remoteId))
+    }
 
     suspend fun createActivity(name: String, budgetMinorUnits: Long, currency: String, myName: String, otherParticipantNames: List<String>): ActivityEntity {
         val activity = ActivityEntity(
@@ -187,6 +259,12 @@ class LocalRepository(context: Context) {
     fun observeParticipants(activityId: String): Flow<List<ParticipantEntity>> = db.participantDao().observeActive(activityId)
     suspend fun participants(activityId: String): List<ParticipantEntity> = db.participantDao().getAll(activityId)
     suspend fun myParticipant(activityId: String): ParticipantEntity? = db.participantDao().getMe(activityId)
+    suspend fun hardDeleteParticipant(id: String) = db.participantDao().delete(id)
+
+    /** Called by SyncEngine once a participant of a just-created-remotely activity has been matched to its new remote row, so it resolves to the same one instead of duplicating on the next pull. */
+    suspend fun markParticipantSynced(participant: ParticipantEntity, remoteId: String) {
+        db.participantDao().upsert(participant.copy(remoteId = remoteId))
+    }
 
     suspend fun ensureMyParticipation(activityId: String, myName: String, remoteId: String? = null): ParticipantEntity {
         myParticipant(activityId)?.let { return it }

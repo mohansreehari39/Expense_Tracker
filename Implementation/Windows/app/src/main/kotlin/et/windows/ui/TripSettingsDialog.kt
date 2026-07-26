@@ -117,9 +117,12 @@ fun TripSettingsDialog(
 
     if (showAddParticipant) {
         val existingIds = remember { participants.map { it.id }.toSet() }
+        // Computed once per dialog show — see HouseholdSettingsDialog's
+        // identical comment on its own "Add Member" QR for why.
+        val qrPayload = remember { encodeJoinInvite(joinInviteForTrip(tripId, currentName)) }
         AddPersonDialog(
             title = "Add Participant",
-            qrPayload = encodeJoinInvite(joinInviteForTrip(tripId, currentName)),
+            qrPayload = qrPayload,
             onDismiss = { showAddParticipant = false },
             onPollForJoin = {
                 val fresh = api.trip(tripId).participants

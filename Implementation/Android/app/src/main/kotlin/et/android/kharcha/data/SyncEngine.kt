@@ -21,14 +21,15 @@ import java.util.UUID
  * linked to a server is untouched by any of this — see LocalRepository.
  */
 object SyncEngine {
-    /** Resolves a paired server's live address via mDNS, falling back to its last-known address. */
+    /** Resolves a paired server's live address via mDNS, falling back to its last-known address. Every request against the result carries this device's id + pairingKey, which the server requires on everything except pairing/heartbeat itself. */
     suspend fun resolveApiClient(context: Context, server: PairedServerEntity, repo: LocalRepository): ApiClient {
+        val deviceId = repo.currentProfile()?.deviceId
         val discovered = discoverKharchaServer(context, timeoutMs = 4000)
         if (discovered != null) {
             repo.updatePairedServerAddress(server.id, discovered.host, discovered.port)
-            return ApiClient(discovered.baseUrl)
+            return ApiClient(discovered.baseUrl, deviceId, server.pairingKey)
         }
-        return ApiClient("http://${server.lastKnownHost}:${server.lastKnownPort}")
+        return ApiClient("http://${server.lastKnownHost}:${server.lastKnownPort}", deviceId, server.pairingKey)
     }
 
     /** This month's actually-in-effect budget — the per-month override if one exists, else the household's default, exactly like Windows' own dashboard resolves it. Android has no month-switching UI, so this is refreshed on every join/pull rather than synced as a separate "default" concept. */
@@ -52,6 +53,7 @@ object SyncEngine {
                 pairedServerId = pairedServerId,
                 remoteId = remoteHouseholdId,
                 createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                settlementEnabled = response.household.settlementEnabled,
             ),
         )
         pullHousehold(repo, api, localId)
@@ -102,6 +104,18 @@ object SyncEngine {
                 repo.forgetPairedServer(server.id)
                 continue
             }
+            // Households/activities created on Android start out purely local
+            // (LocalRepository.createHousehold/createActivity never link them to
+            // a server) — push each one to the server here, once, the first time
+            // it's reachable. Linking happens inside pushNewHousehold/Activity
+            // immediately on success, so the very same pass's linkedHouseholds()
+            // loop below already picks it up for the usual push-pull treatment.
+            for (household in repo.unlinkedHouseholds()) {
+                runCatching { pushNewHousehold(repo, api, server.id, household) }
+            }
+            for (activity in repo.unlinkedActivities()) {
+                runCatching { pushNewActivity(repo, api, server.id, activity) }
+            }
             for (household in repo.linkedHouseholds().filter { it.pairedServerId == server.id }) {
                 runCatching { syncHousehold(repo, api, household) }
             }
@@ -114,10 +128,75 @@ object SyncEngine {
     private fun Throwable?.isDeviceRevoked(): Boolean =
         this is ClientRequestException && response.status == HttpStatusCode.Gone
 
+    private suspend fun pushNewHousehold(repo: LocalRepository, api: ApiClient, pairedServerId: String, household: HouseholdEntity) {
+        val created = api.createHousehold(household.name)
+        repo.linkHousehold(household.id, pairedServerId, created.id)
+        for (member in repo.members(household.id).filter { it.remoteId == null }) {
+            val remoteMember = runCatching { api.addMember(created.id, member.displayName) }.getOrNull() ?: continue
+            repo.markMemberSynced(member, remoteMember.id)
+        }
+        if (household.defaultBudgetMinorUnits != null || household.settlementEnabled) {
+            runCatching {
+                api.updateHousehold(
+                    created.id,
+                    UpdateHouseholdRequest(
+                        name = household.name,
+                        defaultMonthlyBudget = household.defaultBudgetMinorUnits?.let { MoneyDto(it, household.currency) },
+                        settlementEnabled = household.settlementEnabled,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** [ApiClient.createTrip] creates the trip's participants atomically from [CreateTripRequest.participantNames] — match them back to our local rows by name so they resolve to the same remote row on the next pull instead of duplicating. */
+    private suspend fun pushNewActivity(repo: LocalRepository, api: ApiClient, pairedServerId: String, activity: ActivityEntity) {
+        val localParticipants = repo.participants(activity.id)
+        val created = api.createTrip(
+            CreateTripRequest(
+                name = activity.name,
+                startDate = activity.startDate,
+                budgetAmountMinorUnits = activity.budgetMinorUnits,
+                currency = activity.currency,
+                participantNames = localParticipants.map { it.displayName },
+            ),
+        )
+        repo.linkActivity(activity.id, pairedServerId, created.id)
+        val remoteParticipants = runCatching { api.trip(created.id).participants }.getOrNull()?.toMutableList() ?: return
+        for (participant in localParticipants) {
+            val match = remoteParticipants.find { it.displayName == participant.displayName } ?: continue
+            remoteParticipants.remove(match)
+            repo.markParticipantSynced(participant, match.id)
+        }
+    }
+
     private suspend fun syncHousehold(repo: LocalRepository, api: ApiClient, household: HouseholdEntity) {
         val remoteId = household.remoteId ?: return
+        pushPendingCategories(repo, api, household.id, remoteId)
+        pushHouseholdConfig(repo, api, household, remoteId)
         pushHouseholdPending(repo, api, household.id, remoteId)
         pullHousehold(repo, api, household.id)
+    }
+
+    /** Name/budget edits made locally (see LocalRepository.updateHouseholdConfig) must reach the server before the pull below overwrites them with the server's still-stale copy. */
+    private suspend fun pushHouseholdConfig(repo: LocalRepository, api: ApiClient, household: HouseholdEntity, remoteHouseholdId: String) {
+        if (!household.pendingConfigSync) return
+        val request = UpdateHouseholdRequest(
+            name = household.name,
+            defaultMonthlyBudget = household.defaultBudgetMinorUnits?.let { MoneyDto(it, household.currency) },
+            settlementEnabled = household.settlementEnabled,
+        )
+        runCatching { api.updateHousehold(remoteHouseholdId, request) }.onSuccess {
+            repo.clearHouseholdConfigPending(household.id)
+        }
+    }
+
+    /** Categories created locally (e.g. via the inline "+Create" picker) have no remoteId until pushed here — must run before [pushHouseholdPending], since a pending expense referencing one of these categories otherwise finds no categoryRemoteId and is skipped forever. */
+    private suspend fun pushPendingCategories(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
+        for (category in repo.categories(householdId).filter { it.remoteId == null }) {
+            val created = runCatching { api.addCategory(remoteHouseholdId, category.name) }.getOrNull() ?: continue
+            repo.markCategorySynced(category.id, created.id)
+        }
     }
 
     private suspend fun pushHouseholdPending(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
@@ -156,6 +235,7 @@ object SyncEngine {
                 name = response.household.name,
                 defaultBudgetMinorUnits = effectiveBudget?.minorUnits,
                 currency = effectiveBudget?.currency ?: household.currency,
+                settlementEnabled = response.household.settlementEnabled,
             ),
         )
         repo.replaceCategoriesFromRemote(
@@ -194,8 +274,21 @@ object SyncEngine {
 
     private suspend fun syncActivity(repo: LocalRepository, api: ApiClient, activity: ActivityEntity) {
         val remoteId = activity.remoteId ?: return
+        pushActivityConfig(repo, api, activity, remoteId)
         pushActivityPending(repo, api, activity.id, remoteId)
         pullActivity(repo, api, activity.id)
+    }
+
+    private suspend fun pushActivityConfig(repo: LocalRepository, api: ApiClient, activity: ActivityEntity, remoteTripId: String) {
+        if (!activity.pendingConfigSync) return
+        val request = UpdateTripRequest(
+            name = activity.name,
+            budgetAmountMinorUnits = activity.budgetMinorUnits,
+            currency = activity.currency,
+        )
+        runCatching { api.updateTrip(remoteTripId, request) }.onSuccess {
+            repo.clearActivityConfigPending(activity.id)
+        }
     }
 
     private suspend fun pushActivityPending(repo: LocalRepository, api: ApiClient, activityId: String, remoteTripId: String) {

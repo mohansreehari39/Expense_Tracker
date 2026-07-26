@@ -17,8 +17,8 @@ import androidx.room.RoomDatabase
         ParticipantEntity::class,
         ActivityExpenseEntity::class,
     ],
-    version = 3,
-    exportSchema = false,
+    version = 5,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
@@ -34,9 +34,19 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
+        /**
+         * No [androidx.room.migration.Migration]s exist yet because no
+         * released version has ever needed one — this is the very first
+         * schema this app ships with real user data behind it. From the
+         * *next* version bump onward, every schema change MUST add an
+         * explicit `Migration(old, new)` here via `.addMigrations(...)`.
+         * Deliberately no `fallbackToDestructiveMigration()`: if a future
+         * version ships without a migration for its bump, Room throws
+         * (crashing the upgrade) instead of silently wiping the user's
+         * data — a crash is recoverable by shipping a fix, data loss isn't.
+         */
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "kharcha.db")
-                .fallbackToDestructiveMigration()
                 .build()
                 .also { instance = it }
         }

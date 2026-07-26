@@ -5,6 +5,7 @@ import et.core.model.Device
 import et.core.model.ExpenseSplit
 import et.core.model.Household
 import et.core.model.HouseholdExpense
+import et.core.model.HouseholdSettlement
 import et.core.model.Member
 import et.core.model.MonthlyBudget
 import et.core.model.Settlement
@@ -60,6 +61,9 @@ interface Repository {
 
     suspend fun settlements(tripId: String): List<Settlement>
     suspend fun saveSettlement(settlement: Settlement)
+
+    suspend fun householdSettlements(householdId: String): List<HouseholdSettlement>
+    suspend fun saveHouseholdSettlement(settlement: HouseholdSettlement)
 
     suspend fun devices(): List<Device>
 }
