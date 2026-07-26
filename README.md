@@ -151,19 +151,44 @@ pass next session once the installer launches cleanly.
       doesn't launch yet; needs a clean re-verify.** `compose.desktop.
       application.nativeDistributions` was already configured;
       `gradlew.bat :app:packageExe` (WiX Toolset v3.14 on this machine)
-      produces `Kharcha-0.1.0.exe`, and running it does install to
-      `%LOCALAPPDATA%\Kharcha`. But the installed `runtime\bin\` is
-      missing `java.exe` — most likely because a `Stop-Process -Force
-      -Name java` cleanup step (run routinely between Gradle builds in
-      this session) killed the JDK's `jlink` subprocess mid-way through
-      `createRuntimeImage`, corrupting that task's cached output without
-      Gradle noticing (its up-to-date check doesn't verify the runtime
-      image's actual completeness, just that the output path exists).
-      Next session: `Remove-Item -Recurse -Force app\build\compose`
-      before re-running `packageExe` (already kicked off, didn't finish
-      before this session ended — re-run and confirm `Kharcha.exe`
-      actually launches before considering this done), and going forward
-      never kill `java.exe` while a Windows packaging task is running.
+      produces `Kharcha-0.1.0.exe`, and running it does install (currently
+      to `%LOCALAPPDATA%\Kharcha` — see the next item, that's changing).
+      But the installed `runtime\bin\` is missing `java.exe` — most likely
+      because a `Stop-Process -Force -Name java` cleanup step (run
+      routinely between Gradle builds in this session) killed the JDK's
+      `jlink` subprocess mid-way through `createRuntimeImage`, corrupting
+      that task's cached output without Gradle noticing (its up-to-date
+      check doesn't verify the runtime image's actual completeness, just
+      that the output path exists). Next session:
+      `Remove-Item -Recurse -Force app\build\compose` before re-running
+      `packageExe`, and going forward never kill `java.exe` while a
+      Windows packaging task is running.
+- [ ] **Installer: app installs like a normal Windows app; only the
+      database defaults to `%LOCALAPPDATA%`, and even that should be
+      user-overridable at install time.** Correction to last session's
+      work — `%LOCALAPPDATA%\Kharcha` was only ever meant for the
+      *database* (see the completed item below), but `build.gradle.kts`'s
+      `windows { perUserInstall = true }` also put the *app itself* there
+      instead of a normal machine-wide location. Fix:
+      - Set the app install location back to a standard one (e.g.
+        `C:\Program Files (x86)\Kharcha`, i.e. `perUserInstall = false` or
+        removed, accepting the UAC elevation prompt that implies) — `dirChooser
+        = true` already lets the user pick a different install folder for
+        the app itself, same as any normal Windows installer.
+      - Additionally offer a **separate** directory prompt during install
+        specifically for the *database* location, defaulting to
+        `%LOCALAPPDATA%\Kharcha` if the user doesn't change it — like the
+        "install path" vs "data path" split some installers offer. This
+        needs custom WiX authoring beyond jpackage's default template
+        (jpackage/Compose Desktop's `dirChooser` only prompts once, for
+        the app's own install directory) — likely via jpackage's
+        `--resource-dir` override to supply a custom WiX UI dialog
+        sequence, or a post-install custom action.
+      - The chosen database path then needs to reach the running app —
+        e.g. the installer writes it to a small config file or registry
+        value (`HKCU\Software\Kharcha` or similar) at install time, and
+        `KharchaConfig.dataDir()` checks for that override before falling
+        back to its current hardcoded `%LOCALAPPDATA%\Kharcha` default.
 - [ ] **Full live-device test pass** for the entire V1 batch above,
       blocked on the installer item directly above — pairing with the new
       one-time secret, computer-name QR display, Android-created
