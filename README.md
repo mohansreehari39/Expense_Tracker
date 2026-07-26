@@ -52,6 +52,48 @@ each item.
       night's implementation: pair a device → remove it from Windows →
       confirm the phone actually stops syncing (gets a `410` and forgets
       the pairing) instead of silently reconnecting.
+- [ ] Household/activity settings (rename, budget, etc.) can't be edited
+      from Android at all right now — only from Windows. Once a
+      household/activity has synced to the phone, editing its
+      configuration should be allowed from Android too, not just
+      viewing/adding expenses.
+
+**Requested features (not started):**
+
+- [ ] **Weekly budget rollover.** Today each week's allocation
+      (`BudgetMath.weekAllocation`) is a fixed proportional slice of the
+      month, independent of other weeks. Change so under/overspend in a
+      week carries forward: if week 1's budget is ₹200 and only ₹100 is
+      spent, the remaining ₹100 should be split equally across the
+      *remaining* weeks of the month (raising their effective budgets);
+      if week 1 spends ₹300 against a ₹200 budget, the ₹100 overspend
+      should be split equally and deducted from the remaining weeks'
+      budgets instead. Per the user: this rollover is computed once, "only
+      on the 1st day of next week, when the balances are computed" — not
+      continuously recalculated intra-week — so a week's own progress bar
+      stays stable while it's still in progress, and only shifts once it's
+      closed out. Needed on both Android (`BudgetMath.kt`) and Windows
+      (`core-domain`'s `WeeklyBudget`/`EvaluateBudget`) — keep them in
+      sync by hand as usual.
+- [ ] **Show the weekly budget numbers, not just month.** The household
+      weekly progress bar (both apps) currently doesn't surface the
+      week's own budget/spent/remaining figures the way the monthly bar
+      does — only a status color. Add the same "₹X of ₹Y" /
+      remaining-or-over caption to the weekly bar that the monthly bar
+      already has.
+- [ ] **Per-person settlement for households**, opt-in via household
+      settings — mirrors the existing activity/trip balance-and-settle-up
+      feature (equal-split net balance per member, "who owes whom"), but
+      for an ongoing household rather than a one-off trip. User's own
+      framing: useful for "multiple bachelors... splitting the cost of
+      items" where, unlike a family sharing one pot, each person's net
+      contribution should be tracked and settled. Needs a toggle in
+      Household Settings (both apps), the balance computation itself
+      (can likely reuse/adapt the existing trip `TripBalances`/
+      `activityBalances` logic against household expenses+members instead
+      of activity expenses+participants), and a display surface for it
+      (probably alongside the existing budget bars on the household
+      screen, only when enabled).
 
 **Known gaps (v0 placeholders, not yet real):**
 
