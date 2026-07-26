@@ -144,25 +144,27 @@ pass next session once the installer launches cleanly.
       `createTrip`, then links the local row — existing members/
       participants are pushed and matched back by name so they resolve to
       the same remote row instead of duplicating.
+- [x] **Windows installer (`setup.exe`) now launches successfully.** The
+      earlier "missing `java.exe`" theory was wrong — jpackage runtime
+      images deliberately never include `bin\java.exe`/`javaw.exe` (the
+      native `Kharcha.exe` launcher loads `jli.dll` directly instead), so
+      that was a red herring. The real error, only visible by running
+      `Kharcha.exe` from a shell instead of double-clicking (the GUI
+      dialog just says "Failed to launch JVM" with no detail): `java.lang.
+      NoClassDefFoundError: java/sql/DriverManager`. Compose Desktop's
+      automatic `jlink` module detection (static `jdeps` analysis of the
+      app's jars) missed `java.sql` because the SQLite JDBC driver only
+      reaches `DriverManager` via reflection/`ServiceLoader`, which isn't
+      visible to static analysis. Fix: added an explicit
+      `modules("java.sql", "java.naming")` to `nativeDistributions` in
+      `build.gradle.kts`. Rebuilt clean and verified: installer runs,
+      installs to `%LOCALAPPDATA%\Kharcha`, and `Kharcha.exe` launches to
+      a full working window. (Still installs under `%LOCALAPPDATA%`
+      rather than a normal Program Files location — see "V1 — remaining"
+      below, that's a separate, deliberate follow-up.)
 
 ### V1 — remaining
 
-- [ ] **Windows installer (`setup.exe`) — builds, but the installed app
-      doesn't launch yet; needs a clean re-verify.** `compose.desktop.
-      application.nativeDistributions` was already configured;
-      `gradlew.bat :app:packageExe` (WiX Toolset v3.14 on this machine)
-      produces `Kharcha-0.1.0.exe`, and running it does install (currently
-      to `%LOCALAPPDATA%\Kharcha` — see the next item, that's changing).
-      But the installed `runtime\bin\` is missing `java.exe` — most likely
-      because a `Stop-Process -Force -Name java` cleanup step (run
-      routinely between Gradle builds in this session) killed the JDK's
-      `jlink` subprocess mid-way through `createRuntimeImage`, corrupting
-      that task's cached output without Gradle noticing (its up-to-date
-      check doesn't verify the runtime image's actual completeness, just
-      that the output path exists). Next session:
-      `Remove-Item -Recurse -Force app\build\compose` before re-running
-      `packageExe`, and going forward never kill `java.exe` while a
-      Windows packaging task is running.
 - [ ] **Installer: app installs like a normal Windows app; only the
       database defaults to `%LOCALAPPDATA%`, and even that should be
       user-overridable at install time.** Correction to last session's
@@ -189,11 +191,11 @@ pass next session once the installer launches cleanly.
         value (`HKCU\Software\Kharcha` or similar) at install time, and
         `KharchaConfig.dataDir()` checks for that override before falling
         back to its current hardcoded `%LOCALAPPDATA%\Kharcha` default.
-- [ ] **Full live-device test pass** for the entire V1 batch above,
-      blocked on the installer item directly above — pairing with the new
-      one-time secret, computer-name QR display, Android-created
-      household syncing to Windows, spending trends screen, settle
-      button, budget figure rows.
+- [ ] **Full live-device test pass** for the entire V1 batch above — no
+      longer blocked (installer now launches) but not yet run: pairing
+      with the new one-time secret, computer-name QR display,
+      Android-created household syncing to Windows, spending trends
+      screen, settle button, budget figure rows.
 
 ### V2 — planned
 
