@@ -4,6 +4,7 @@ import android.content.Context
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.CategoryEntity
+import et.android.kharcha.data.local.SubcategoryEntity
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
@@ -173,6 +174,7 @@ object SyncEngine {
     private suspend fun syncHousehold(repo: LocalRepository, api: ApiClient, household: HouseholdEntity) {
         val remoteId = household.remoteId ?: return
         pushPendingCategories(repo, api, household.id, remoteId)
+        pushPendingSubcategories(repo, api, household.id, remoteId)
         pushHouseholdConfig(repo, api, household, remoteId)
         pushHouseholdPending(repo, api, household.id, remoteId)
         pullHousehold(repo, api, household.id)
@@ -199,9 +201,21 @@ object SyncEngine {
         }
     }
 
+    /** Subcategories created locally have no remoteId until pushed here — same ordering requirement as [pushPendingCategories], must run before [pushHouseholdPending]. */
+    private suspend fun pushPendingSubcategories(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
+        for (category in repo.categories(householdId)) {
+            val categoryRemoteId = category.remoteId ?: continue
+            for (subcategory in repo.subcategories(category.id).filter { it.remoteId == null }) {
+                val created = runCatching { api.addSubcategory(remoteHouseholdId, categoryRemoteId, subcategory.name) }.getOrNull() ?: continue
+                repo.markSubcategorySynced(subcategory.id, created.id)
+            }
+        }
+    }
+
     private suspend fun pushHouseholdPending(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
         for (expense in repo.pendingHouseholdExpenses(householdId)) {
             val categoryRemoteId = repo.categories(householdId).find { it.id == expense.categoryId }?.remoteId ?: continue
+            val subcategoryRemoteId = expense.subcategoryId?.let { subcategoryId -> repo.subcategories(expense.categoryId).find { it.id == subcategoryId }?.remoteId }
             val memberRemoteId = repo.members(householdId).find { it.id == expense.paidByMemberId }?.remoteId ?: continue
             if (expense.pendingDelete) {
                 if (expense.remoteId != null) runCatching { api.deleteExpense(remoteHouseholdId, expense.remoteId) }
@@ -209,6 +223,7 @@ object SyncEngine {
             } else {
                 val request = RecordExpenseRequest(
                     categoryId = categoryRemoteId,
+                    subcategoryId = subcategoryRemoteId,
                     amountMinorUnits = expense.amountMinorUnits,
                     currency = expense.currency,
                     paidByMemberId = memberRemoteId,
@@ -242,6 +257,20 @@ object SyncEngine {
             householdId,
             response.categories.map { CategoryEntity(id = localIdForCategory(repo.categories(householdId), it.id) ?: UUID.randomUUID().toString(), householdId = householdId, name = it.name, remoteId = it.id) },
         )
+        for (remoteCategory in response.categories) {
+            val categoryId = repo.categories(householdId).find { it.remoteId == remoteCategory.id }?.id ?: continue
+            repo.replaceSubcategoriesFromRemote(
+                categoryId,
+                remoteCategory.subcategories.map {
+                    SubcategoryEntity(
+                        id = localIdForSubcategory(repo.subcategories(categoryId), it.id) ?: UUID.randomUUID().toString(),
+                        categoryId = categoryId,
+                        name = it.name,
+                        remoteId = it.id,
+                    )
+                },
+            )
+        }
         repo.replaceMembersFromRemote(
             householdId,
             response.members.map { MemberEntity(id = localIdForMember(repo.members(householdId), it.id) ?: UUID.randomUUID().toString(), householdId = householdId, displayName = it.displayName, remoteId = it.id) },
@@ -255,11 +284,13 @@ object SyncEngine {
             householdId,
             expenses.mapNotNull { remote ->
                 val categoryId = categories.find { it.remoteId == remote.categoryId }?.id ?: return@mapNotNull null
+                val subcategoryId = remote.subcategoryId?.let { remoteSubcategoryId -> repo.subcategories(categoryId).find { it.remoteId == remoteSubcategoryId }?.id }
                 val memberId = members.find { it.remoteId == remote.paidByMemberId }?.id ?: return@mapNotNull null
                 HouseholdExpenseEntity(
                     id = localIdForHouseholdExpense(repo.householdExpenses(householdId), remote.id) ?: UUID.randomUUID().toString(),
                     householdId = householdId,
                     categoryId = categoryId,
+                    subcategoryId = subcategoryId,
                     amountMinorUnits = remote.amount.minorUnits,
                     currency = remote.amount.currency,
                     paidByMemberId = memberId,
@@ -342,6 +373,7 @@ object SyncEngine {
     }
 
     private fun localIdForCategory(existing: List<CategoryEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
+    private fun localIdForSubcategory(existing: List<SubcategoryEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForMember(existing: List<MemberEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForParticipant(existing: List<ParticipantEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForHouseholdExpense(existing: List<HouseholdExpenseEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id

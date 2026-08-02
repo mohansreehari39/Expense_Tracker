@@ -2,10 +2,12 @@ package et.windows.server
 
 import et.core.domain.AddCategory
 import et.core.domain.AddMember
+import et.core.domain.AddSubcategory
 import et.core.domain.AddTripExpenseWithSplit
 import et.core.domain.AddTripParticipant
 import et.core.domain.ArchiveCategory
 import et.core.domain.ArchiveMember
+import et.core.domain.ArchiveSubcategory
 import et.core.domain.ArchiveTripParticipant
 import et.core.domain.CreateHousehold
 import et.core.domain.CreateTrip
@@ -33,6 +35,8 @@ class AppServices(
     val setMonthlyBudget = SetMonthlyBudget(repository, idGenerator)
     val addCategory = AddCategory(repository, idGenerator)
     val archiveCategory = ArchiveCategory(repository)
+    val addSubcategory = AddSubcategory(repository, idGenerator)
+    val archiveSubcategory = ArchiveSubcategory(repository)
     val addMember = AddMember(repository, idGenerator)
     val archiveMember = ArchiveMember(repository)
     val recordHouseholdSettlement = RecordHouseholdSettlement(repository, idGenerator)

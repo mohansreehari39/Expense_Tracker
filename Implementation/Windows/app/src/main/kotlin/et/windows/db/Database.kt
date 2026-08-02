@@ -59,6 +59,16 @@ private fun migrateExistingDatabase(url: String) {
             )
             statement.execute(
                 """
+                CREATE TABLE IF NOT EXISTS subcategory (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    categoryId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    isArchived INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent(),
+            )
+            statement.execute(
+                """
                 CREATE TABLE IF NOT EXISTS householdSettlement (
                     id TEXT NOT NULL PRIMARY KEY,
                     householdId TEXT NOT NULL,
@@ -80,6 +90,8 @@ private fun migrateExistingDatabase(url: String) {
         // rather than silently keep heartbeating.
         addColumnIfMissing(connection, "pairedDevice", "pairingKey", "TEXT NOT NULL DEFAULT ''")
         addColumnIfMissing(connection, "household", "settlementEnabled", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(connection, "householdExpense", "subcategoryId", "TEXT")
+        addColumnIfMissing(connection, "tripExpense", "subcategoryId", "TEXT")
     }
 }
 

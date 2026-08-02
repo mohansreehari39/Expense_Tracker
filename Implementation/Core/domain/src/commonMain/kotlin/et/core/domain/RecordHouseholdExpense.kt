@@ -10,6 +10,7 @@ class RecordHouseholdExpense(
     suspend operator fun invoke(
         householdId: String,
         categoryId: String,
+        subcategoryId: String? = null,
         amount: Money,
         paidByMemberId: String,
         occurredAt: Long,
@@ -21,6 +22,7 @@ class RecordHouseholdExpense(
             id = idGenerator.newId(),
             householdId = householdId,
             categoryId = categoryId,
+            subcategoryId = subcategoryId,
             amount = amount,
             paidByMemberId = paidByMemberId,
             occurredAt = occurredAt,

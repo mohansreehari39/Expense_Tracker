@@ -66,6 +66,12 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
             setBody(AddCategoryRequest(name))
         }.body()
 
+    suspend fun addSubcategory(householdId: String, categoryId: String, name: String): SubcategoryDto =
+        client.post("$baseUrl/api/v1/households/$householdId/categories/$categoryId/subcategories") {
+            contentType(ContentType.Application.Json)
+            setBody(AddSubcategoryRequest(name))
+        }.body()
+
     suspend fun addMember(householdId: String, displayName: String): MemberDto =
         client.post("$baseUrl/api/v1/households/$householdId/members") {
             contentType(ContentType.Application.Json)

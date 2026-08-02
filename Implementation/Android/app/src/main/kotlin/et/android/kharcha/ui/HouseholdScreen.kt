@@ -268,10 +268,12 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
             currency = currency,
             defaultMemberId = myMemberId,
             onCreateCategory = { name -> repo.addCategory(householdId, name) },
+            onGetSubcategories = { categoryId -> repo.subcategories(categoryId) },
+            onCreateSubcategory = { categoryId, name -> repo.addSubcategory(categoryId, name) },
             onDismiss = { showAddExpense = false },
-            onSubmit = { categoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
+            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
                 scope.launch {
-                    repo.recordHouseholdExpense(householdId, categoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note)
+                    repo.recordHouseholdExpense(householdId, categoryId, subcategoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note)
                     showAddExpense = false
                 }
             },
@@ -285,13 +287,16 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
             currency = currency,
             defaultMemberId = myMemberId,
             onCreateCategory = { name -> repo.addCategory(householdId, name) },
+            onGetSubcategories = { categoryId -> repo.subcategories(categoryId) },
+            onCreateSubcategory = { categoryId, name -> repo.addSubcategory(categoryId, name) },
             expenseToEdit = expense,
             onDismiss = { expenseToEdit = null },
-            onSubmit = { categoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
+            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
                 scope.launch {
                     repo.updateHouseholdExpense(
                         expense.copy(
                             categoryId = categoryId,
+                            subcategoryId = subcategoryId,
                             amountMinorUnits = amountMinorUnits,
                             paidByMemberId = paidByMemberId,
                             occurredAt = occurredAt,

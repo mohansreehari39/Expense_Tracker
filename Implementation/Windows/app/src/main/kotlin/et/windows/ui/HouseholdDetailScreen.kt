@@ -230,6 +230,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             currency = currency,
             onDismiss = { showAddExpense = false },
             onCreateCategory = { name -> api.addCategory(householdId, name) },
+            onCreateSubcategory = { categoryId, name -> api.addSubcategory(householdId, categoryId, name) },
             onSubmit = { request ->
                 scope.launch {
                     api.recordExpense(householdId, request)
@@ -248,6 +249,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
             expenseToEdit = expense,
             onDismiss = { expenseToEdit = null },
             onCreateCategory = { name -> api.addCategory(householdId, name) },
+            onCreateSubcategory = { categoryId, name -> api.addSubcategory(householdId, categoryId, name) },
             onSubmit = { request ->
                 scope.launch {
                     api.updateExpense(householdId, expense.id, request)

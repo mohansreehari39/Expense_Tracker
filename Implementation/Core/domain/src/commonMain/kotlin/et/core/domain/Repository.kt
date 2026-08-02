@@ -9,6 +9,7 @@ import et.core.model.HouseholdSettlement
 import et.core.model.Member
 import et.core.model.MonthlyBudget
 import et.core.model.Settlement
+import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
 import et.core.model.TripParticipant
@@ -28,6 +29,11 @@ interface Repository {
     /** Unlike [categories], includes archived ones — needed to look one up before re-saving it. */
     suspend fun categoryById(categoryId: String): Category?
     suspend fun saveCategory(category: Category)
+
+    suspend fun subcategories(categoryId: String): List<Subcategory>
+    /** Unlike [subcategories], includes archived ones — needed to look one up before re-saving it. */
+    suspend fun subcategoryById(subcategoryId: String): Subcategory?
+    suspend fun saveSubcategory(subcategory: Subcategory)
 
     suspend fun members(householdId: String): List<Member>
     /** Unlike [members], includes archived ones — needed to look one up before re-saving it. */

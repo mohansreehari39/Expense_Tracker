@@ -16,6 +16,7 @@ import et.core.model.MonthlyBudget
 import et.core.model.OpType
 import et.core.model.Operation
 import et.core.model.Settlement
+import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
 import et.core.model.TripParticipant
@@ -83,6 +84,23 @@ class SqlDelightRepository(
     override suspend fun saveCategory(category: Category): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L)
         logOp(EntityType.CATEGORY, category.id, mapOf("name" to JsonPrimitive(category.name)))
+    }
+
+    override suspend fun subcategories(categoryId: String): List<Subcategory> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectSubcategories(categoryId).executeAsList().map {
+            Subcategory(it.id, it.categoryId, it.name, it.isArchived == 1L)
+        }
+    }
+
+    override suspend fun subcategoryById(subcategoryId: String): Subcategory? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectSubcategoryById(subcategoryId).executeAsOneOrNull()?.let {
+            Subcategory(it.id, it.categoryId, it.name, it.isArchived == 1L)
+        }
+    }
+
+    override suspend fun saveSubcategory(subcategory: Subcategory): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.upsertSubcategory(subcategory.id, subcategory.categoryId, subcategory.name, if (subcategory.isArchived) 1L else 0L)
+        logOp(EntityType.SUBCATEGORY, subcategory.id, mapOf("name" to JsonPrimitive(subcategory.name)))
     }
 
     override suspend fun members(householdId: String): List<Member> = withContext(Dispatchers.IO) {
@@ -158,6 +176,7 @@ class SqlDelightRepository(
         id = row.id,
         householdId = row.householdId,
         categoryId = row.categoryId,
+        subcategoryId = row.subcategoryId,
         amount = Money(row.amountMinorUnits, row.currency),
         paidByMemberId = row.paidByMemberId,
         occurredAt = row.occurredAt,
@@ -171,6 +190,7 @@ class SqlDelightRepository(
             id = expense.id,
             householdId = expense.householdId,
             categoryId = expense.categoryId,
+            subcategoryId = expense.subcategoryId,
             amountMinorUnits = expense.amount.minorUnits,
             currency = expense.amount.currency,
             paidByMemberId = expense.paidByMemberId,
@@ -194,6 +214,7 @@ class SqlDelightRepository(
     override suspend fun updateHouseholdExpense(expense: HouseholdExpense): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.updateHouseholdExpense(
             categoryId = expense.categoryId,
+            subcategoryId = expense.subcategoryId,
             amountMinorUnits = expense.amount.minorUnits,
             currency = expense.amount.currency,
             paidByMemberId = expense.paidByMemberId,
@@ -275,6 +296,7 @@ class SqlDelightRepository(
         id = row.id,
         tripId = row.tripId,
         categoryId = row.categoryId,
+        subcategoryId = row.subcategoryId,
         amount = Money(row.amountMinorUnits, row.currency),
         paidByParticipantId = row.paidByParticipantId,
         occurredAt = row.occurredAt,
@@ -294,6 +316,7 @@ class SqlDelightRepository(
                     id = expense.id,
                     tripId = expense.tripId,
                     categoryId = expense.categoryId,
+                    subcategoryId = expense.subcategoryId,
                     amountMinorUnits = expense.amount.minorUnits,
                     currency = expense.amount.currency,
                     paidByParticipantId = expense.paidByParticipantId,
@@ -322,6 +345,7 @@ class SqlDelightRepository(
             db.transaction {
                 db.schemaQueries.updateTripExpense(
                     categoryId = expense.categoryId,
+                    subcategoryId = expense.subcategoryId,
                     amountMinorUnits = expense.amount.minorUnits,
                     currency = expense.amount.currency,
                     paidByParticipantId = expense.paidByParticipantId,

@@ -32,7 +32,10 @@ data class HouseholdDto(
 )
 
 @Serializable
-data class CategoryDto(val id: String, val name: String, val icon: String)
+data class CategoryDto(val id: String, val name: String, val icon: String, val subcategories: List<SubcategoryDto> = emptyList())
+
+@Serializable
+data class SubcategoryDto(val id: String, val name: String)
 
 @Serializable
 data class MemberDto(val id: String, val displayName: String)
@@ -68,6 +71,9 @@ data class UpdateHouseholdRequest(val name: String, val defaultMonthlyBudget: Mo
 data class AddCategoryRequest(val name: String)
 
 @Serializable
+data class AddSubcategoryRequest(val name: String)
+
+@Serializable
 data class AddMemberRequest(val displayName: String)
 
 @Serializable
@@ -91,6 +97,7 @@ data class SetBudgetRequest(val year: Int, val month: Int, val totalAmountMinorU
 data class HouseholdExpenseDto(
     val id: String,
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amount: MoneyDto,
     val paidByMemberId: String,
     val occurredAt: Long,
@@ -100,6 +107,7 @@ data class HouseholdExpenseDto(
 @Serializable
 data class RecordExpenseRequest(
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amountMinorUnits: Long,
     val currency: String,
     val paidByMemberId: String,
