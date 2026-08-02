@@ -73,6 +73,24 @@ interface CategoryDao {
 }
 
 @Dao
+interface SubcategoryDao {
+    @Query("SELECT * FROM subcategory WHERE categoryId = :categoryId AND isArchived = 0")
+    fun observeActive(categoryId: String): Flow<List<SubcategoryEntity>>
+
+    @Query("SELECT * FROM subcategory WHERE categoryId = :categoryId")
+    suspend fun getAll(categoryId: String): List<SubcategoryEntity>
+
+    @Query("SELECT * FROM subcategory WHERE id = :id")
+    suspend fun getById(id: String): SubcategoryEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(subcategory: SubcategoryEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(subcategories: List<SubcategoryEntity>)
+}
+
+@Dao
 interface MemberDao {
     @Query("SELECT * FROM member WHERE householdId = :householdId AND isArchived = 0")
     fun observeActive(householdId: String): Flow<List<MemberEntity>>

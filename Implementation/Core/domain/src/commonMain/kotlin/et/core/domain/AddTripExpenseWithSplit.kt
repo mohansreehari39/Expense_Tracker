@@ -16,6 +16,7 @@ class AddTripExpenseWithSplit(
         occurredAt: Long,
         splitMode: SplitMode,
         categoryId: String? = null,
+        subcategoryId: String? = null,
         note: String = "",
     ): TripExpense {
         val shares = SplitCalculator.computeSplits(amount, splitMode)
@@ -23,6 +24,7 @@ class AddTripExpenseWithSplit(
             id = idGenerator.newId(),
             tripId = tripId,
             categoryId = categoryId,
+            subcategoryId = subcategoryId,
             amount = amount,
             paidByParticipantId = paidByParticipantId,
             occurredAt = occurredAt,

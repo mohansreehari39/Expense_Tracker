@@ -17,12 +17,14 @@ class EditTripExpenseWithSplit(
         occurredAt: Long,
         splitMode: SplitMode,
         categoryId: String? = null,
+        subcategoryId: String? = null,
         note: String = "",
     ): TripExpense? {
         val existing = repository.tripExpenseById(expenseId) ?: return null
         val shares = SplitCalculator.computeSplits(amount, splitMode)
         val updated = existing.copy(
             categoryId = categoryId,
+            subcategoryId = subcategoryId,
             amount = amount,
             paidByParticipantId = paidByParticipantId,
             occurredAt = occurredAt,

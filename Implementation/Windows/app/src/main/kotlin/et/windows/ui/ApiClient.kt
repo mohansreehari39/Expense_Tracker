@@ -1,6 +1,7 @@
 package et.windows.ui
 
 import et.windows.server.AddCategoryRequest
+import et.windows.server.AddSubcategoryRequest
 import et.windows.server.AddMemberRequest
 import et.windows.server.AddTripExpenseRequest
 import et.windows.server.AddTripParticipantRequest
@@ -18,6 +19,7 @@ import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
 import et.windows.server.RecordHouseholdSettlementRequest
 import et.windows.server.SetBudgetRequest
+import et.windows.server.SubcategoryDto
 import et.windows.server.SpendingTrendResponse
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripDto
@@ -72,6 +74,16 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun archiveCategory(householdId: String, categoryId: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/categories/$categoryId")
+    }
+
+    suspend fun addSubcategory(householdId: String, categoryId: String, name: String): SubcategoryDto =
+        client.post("$baseUrl/api/v1/households/$householdId/categories/$categoryId/subcategories") {
+            contentType(ContentType.Application.Json)
+            setBody(AddSubcategoryRequest(name))
+        }.body()
+
+    suspend fun archiveSubcategory(householdId: String, categoryId: String, subcategoryId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/categories/$categoryId/subcategories/$subcategoryId")
     }
 
     suspend fun addMember(householdId: String, displayName: String): MemberDto =

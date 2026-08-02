@@ -162,6 +162,21 @@ pass next session once the installer launches cleanly.
       a full working window. (Still installs under `%LOCALAPPDATA%`
       rather than a normal Program Files location — see "V1 — remaining"
       below, that's a separate, deliberate follow-up.)
+- [x] **Subcategories.** Each category can have user-defined
+      subcategories (`Core/model` `Subcategory`, keyed by `categoryId`,
+      not household/trip), managed identically to categories — same
+      dedup-by-name-on-create rule, same soft-delete-via-archive, same
+      typeahead-create picker pattern, on both apps. `HouseholdExpense`/
+      `TripExpense` gained an optional `subcategoryId`. Windows exposes
+      subcategories nested under each category in `GET /households/{id}`
+      (`CategoryDto.subcategories`) plus `POST`/`DELETE .../categories/
+      {categoryId}/subcategories[/{id}]`; Android syncs them the same way
+      categories already sync (push pending, pull-and-reconcile by
+      `remoteId`), gated behind a new Room migration (`5 → 6`, additive
+      only — new table + nullable column, no existing data touched).
+      Compiles clean on Core/Windows/Android; not yet live-tested on a
+      real device pair (both apps are uninstalled for a fresh test pass —
+      see the item below).
 
 ### V1 — remaining
 
@@ -196,12 +211,6 @@ pass next session once the installer launches cleanly.
       with the new one-time secret, computer-name QR display,
       Android-created household syncing to Windows, spending trends
       screen, settle button, budget figure rows.
-- [ ] **Subcategories.** Each category can have user-defined
-      subcategories, managed almost identically to categories themselves
-      (create/select from the same Add Expense picker flow). Example:
-      category "Meat" has subcategories "Fish", "Chicken", "Mutton".
-      Subcategory is optional on an expense; category rollups/trends
-      should still work when it's absent.
 - [ ] **Expense beneficiaries ("who all are included in the expense"),
       household + activity.** Splits *who the money was spent on*, as
       opposed to who paid (see next item). A single expense can be
@@ -223,6 +232,9 @@ pass next session once the installer launches cleanly.
       beneficiary split above. Default: 100% attributed to whoever is
       entering the expense, editable from there. This is the payer side
       of the ledger that `SettleUp`/balance calculations should read from.
+- [ ] Trip/activity settlement recording — `SettleUp` already exists in
+      Core domain but has no route or UI (households got this in V1,
+      trips didn't).
 
 - [ ] **Direct Android-to-Android pairing/sync** — the headline V2
       feature. Join a household/activity phone-to-phone without going
@@ -231,9 +243,6 @@ pass next session once the installer launches cleanly.
       04-pairing-and-crypto.md`) as its trust foundation — V1 only shipped
       a scoped-down interim version (single-use pairing secret + required
       device credentials on every request), not the full design.
-- [ ] Trip/activity settlement recording — `SettleUp` already exists in
-      Core domain but has no route or UI (households got this in V1,
-      trips didn't).
 - [ ] Split-mode picker UI (exact/percentage/weighted) — `SplitCalculator`
       already supports all four modes, both app UIs are equal-only.
 - [ ] Rename support for categories/members/participants (create +

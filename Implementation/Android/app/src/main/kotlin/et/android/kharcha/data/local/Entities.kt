@@ -65,6 +65,15 @@ data class CategoryEntity(
     val remoteId: String? = null,
 )
 
+@Entity(tableName = "subcategory")
+data class SubcategoryEntity(
+    @PrimaryKey val id: String,
+    val categoryId: String,
+    val name: String,
+    val isArchived: Boolean = false,
+    val remoteId: String? = null,
+)
+
 /** [isMe] marks which member row is this device's own identity within the household. */
 @Entity(tableName = "member")
 data class MemberEntity(
@@ -86,6 +95,7 @@ data class HouseholdExpenseEntity(
     @PrimaryKey val id: String,
     val householdId: String,
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amountMinorUnits: Long,
     val currency: String,
     val paidByMemberId: String,

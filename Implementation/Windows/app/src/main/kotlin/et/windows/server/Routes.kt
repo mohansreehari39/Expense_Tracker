@@ -189,7 +189,7 @@ private fun Route.households(services: AppServices) {
                 call.respond(
                     HouseholdResponse(
                         household.toDto(),
-                        categories.map { it.toDto() },
+                        categories.map { c -> c.toDto(services.repository.subcategories(c.id).map { it.toDto() }) },
                         members.map { it.toDto() },
                         balances,
                         suggestions,
@@ -228,6 +228,26 @@ private fun Route.households(services: AppServices) {
                     val archived = services.archiveCategory(categoryId)
                         ?: return@delete call.respond(HttpStatusCode.NotFound)
                     call.respond(archived.toDto())
+                }
+
+                route("/{categoryId}/subcategories") {
+                    post {
+                        val categoryId = call.parameters["categoryId"]!!
+                        val request = call.receive<AddSubcategoryRequest>()
+                        val subcategory = try {
+                            services.addSubcategory(categoryId, request.name)
+                        } catch (e: IllegalArgumentException) {
+                            return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid subcategory name")))
+                        }
+                        call.respond(HttpStatusCode.Created, subcategory.toDto())
+                    }
+
+                    delete("/{subcategoryId}") {
+                        val subcategoryId = call.parameters["subcategoryId"]!!
+                        val archived = services.archiveSubcategory(subcategoryId)
+                            ?: return@delete call.respond(HttpStatusCode.NotFound)
+                        call.respond(archived.toDto())
+                    }
                 }
             }
 
@@ -347,6 +367,7 @@ private fun Route.households(services: AppServices) {
                     val expense = services.recordHouseholdExpense(
                         householdId = householdId,
                         categoryId = request.categoryId,
+                        subcategoryId = request.subcategoryId,
                         amount = Money(request.amountMinorUnits, request.currency),
                         paidByMemberId = request.paidByMemberId,
                         occurredAt = request.occurredAt,
@@ -366,6 +387,7 @@ private fun Route.households(services: AppServices) {
                         val expense = services.editHouseholdExpense(
                             expenseId = expenseId,
                             categoryId = request.categoryId,
+                            subcategoryId = request.subcategoryId,
                             amount = Money(request.amountMinorUnits, request.currency),
                             paidByMemberId = request.paidByMemberId,
                             occurredAt = request.occurredAt,

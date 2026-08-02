@@ -24,6 +24,7 @@ import et.windows.server.CategoryDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.MemberDto
 import et.windows.server.RecordExpenseRequest
+import et.windows.server.SubcategoryDto
 
 /** Also used to edit an existing expense, when [expenseToEdit] is non-null. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,6 +36,7 @@ fun AddExpenseDialog(
     expenseToEdit: HouseholdExpenseDto? = null,
     onDismiss: () -> Unit,
     onCreateCategory: suspend (String) -> CategoryDto,
+    onCreateSubcategory: suspend (categoryId: String, name: String) -> SubcategoryDto,
     onSubmit: (RecordExpenseRequest) -> Unit,
 ) {
     var amountText by remember {
@@ -44,7 +46,9 @@ fun AddExpenseDialog(
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
     var localCategories by remember { mutableStateOf(categories) }
     var selectedCategoryId by remember { mutableStateOf(expenseToEdit?.categoryId ?: categories.firstOrNull()?.id) }
+    var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     var selectedMemberId by remember { mutableStateOf(expenseToEdit?.paidByMemberId ?: members.firstOrNull()?.id) }
+    val availableSubcategories = localCategories.find { it.id == selectedCategoryId }?.subcategories ?: emptyList()
     val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && selectedMemberId != null
 
@@ -62,16 +66,35 @@ fun AddExpenseDialog(
                 CategoryPicker(
                     categories = localCategories,
                     selectedCategoryId = selectedCategoryId,
-                    onCategorySelected = { selectedCategoryId = it.id },
+                    onCategorySelected = {
+                        selectedCategoryId = it.id
+                        selectedSubcategoryId = null
+                    },
                     onCreateCategory = { name ->
                         val created = onCreateCategory(name)
                         if (localCategories.none { it.id == created.id }) {
                             localCategories = localCategories + created
                         }
+                        selectedSubcategoryId = null
                         created
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (selectedCategoryId != null) {
+                    SubcategoryPicker(
+                        subcategories = availableSubcategories,
+                        selectedSubcategoryId = selectedSubcategoryId,
+                        onSubcategorySelected = { selectedSubcategoryId = it.id },
+                        onCreateSubcategory = { name ->
+                            val created = onCreateSubcategory(selectedCategoryId!!, name)
+                            localCategories = localCategories.map { c ->
+                                if (c.id == selectedCategoryId) c.copy(subcategories = c.subcategories + created) else c
+                            }
+                            created
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 Text("Paid by")
                 if (members.isEmpty()) {
                     Text(
@@ -111,6 +134,7 @@ fun AddExpenseDialog(
                     onSubmit(
                         RecordExpenseRequest(
                             categoryId = selectedCategoryId!!,
+                            subcategoryId = selectedSubcategoryId,
                             amountMinorUnits = amountMinorUnits!!,
                             currency = currency,
                             paidByMemberId = selectedMemberId!!,

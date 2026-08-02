@@ -8,6 +8,7 @@ import et.core.model.HouseholdExpense
 import et.core.model.Member
 import et.core.model.Money
 import et.core.model.MonthlyBudget
+import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
 import et.core.model.TripParticipant
@@ -45,9 +46,14 @@ fun Household.toDto(monthEvaluation: BudgetEvaluationDto? = null) =
     HouseholdDto(id, name, defaultMonthlyBudget?.toDto(), monthEvaluation, settlementEnabled)
 
 @Serializable
-data class CategoryDto(val id: String, val name: String, val icon: String)
+data class CategoryDto(val id: String, val name: String, val icon: String, val subcategories: List<SubcategoryDto> = emptyList())
 
-fun Category.toDto() = CategoryDto(id, name, icon)
+fun Category.toDto(subcategories: List<SubcategoryDto> = emptyList()) = CategoryDto(id, name, icon, subcategories)
+
+@Serializable
+data class SubcategoryDto(val id: String, val name: String)
+
+fun Subcategory.toDto() = SubcategoryDto(id, name)
 
 @Serializable
 data class MemberDto(val id: String, val displayName: String)
@@ -68,6 +74,9 @@ data class HouseholdResponse(
 data class AddCategoryRequest(val name: String)
 
 @Serializable
+data class AddSubcategoryRequest(val name: String)
+
+@Serializable
 data class AddMemberRequest(val displayName: String)
 
 @Serializable
@@ -85,13 +94,14 @@ fun MonthlyBudget.toDto() = MonthlyBudgetDto(id, year, month, totalAmount.toDto(
 data class HouseholdExpenseDto(
     val id: String,
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amount: MoneyDto,
     val paidByMemberId: String,
     val occurredAt: Long,
     val note: String,
 )
 
-fun HouseholdExpense.toDto() = HouseholdExpenseDto(id, categoryId, amount.toDto(), paidByMemberId, occurredAt, note)
+fun HouseholdExpense.toDto() = HouseholdExpenseDto(id, categoryId, subcategoryId, amount.toDto(), paidByMemberId, occurredAt, note)
 
 @Serializable
 data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
@@ -114,6 +124,7 @@ data class SetBudgetRequest(val year: Int, val month: Int, val totalAmountMinorU
 @Serializable
 data class RecordExpenseRequest(
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amountMinorUnits: Long,
     val currency: String,
     val paidByMemberId: String,

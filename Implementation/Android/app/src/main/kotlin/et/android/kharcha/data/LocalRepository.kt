@@ -11,6 +11,7 @@ import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.PairedServerEntity
 import et.android.kharcha.data.local.ParticipantEntity
 import et.android.kharcha.data.local.ProfileEntity
+import et.android.kharcha.data.local.SubcategoryEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -162,6 +163,28 @@ class LocalRepository(context: Context) {
         db.categoryDao().upsert(category.copy(remoteId = remoteId))
     }
 
+    fun observeSubcategories(categoryId: String): Flow<List<SubcategoryEntity>> = db.subcategoryDao().observeActive(categoryId)
+    suspend fun subcategories(categoryId: String): List<SubcategoryEntity> = db.subcategoryDao().getAll(categoryId)
+
+    suspend fun addSubcategory(categoryId: String, name: String): SubcategoryEntity {
+        val trimmed = name.trim()
+        val existing = db.subcategoryDao().getAll(categoryId).find { it.name.equals(trimmed, ignoreCase = true) && !it.isArchived }
+        if (existing != null) return existing
+        val subcategory = SubcategoryEntity(UUID.randomUUID().toString(), categoryId, trimmed)
+        db.subcategoryDao().upsert(subcategory)
+        return subcategory
+    }
+
+    /** Called by SyncEngine once a locally-created subcategory (remoteId == null) has been pushed to a linked household's server. */
+    suspend fun markSubcategorySynced(id: String, remoteId: String) {
+        val subcategory = db.subcategoryDao().getById(id) ?: return
+        db.subcategoryDao().upsert(subcategory.copy(remoteId = remoteId))
+    }
+
+    suspend fun replaceSubcategoriesFromRemote(categoryId: String, subcategories: List<SubcategoryEntity>) {
+        db.subcategoryDao().upsertAll(subcategories)
+    }
+
     fun observeMembers(householdId: String): Flow<List<MemberEntity>> = db.memberDao().observeActive(householdId)
     suspend fun members(householdId: String): List<MemberEntity> = db.memberDao().getAll(householdId)
     suspend fun myMember(householdId: String): MemberEntity? = db.memberDao().getMe(householdId)
@@ -187,6 +210,7 @@ class LocalRepository(context: Context) {
     suspend fun recordHouseholdExpense(
         householdId: String,
         categoryId: String,
+        subcategoryId: String? = null,
         amountMinorUnits: Long,
         currency: String,
         paidByMemberId: String,
@@ -199,6 +223,7 @@ class LocalRepository(context: Context) {
                 id = UUID.randomUUID().toString(),
                 householdId = householdId,
                 categoryId = categoryId,
+                subcategoryId = subcategoryId,
                 amountMinorUnits = amountMinorUnits,
                 currency = currency,
                 paidByMemberId = paidByMemberId,

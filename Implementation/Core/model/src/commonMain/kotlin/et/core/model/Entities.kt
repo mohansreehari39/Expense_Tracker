@@ -42,6 +42,13 @@ data class Category(
     val isArchived: Boolean = false,
 )
 
+data class Subcategory(
+    val id: String,
+    val categoryId: String,
+    val name: String,
+    val isArchived: Boolean = false,
+)
+
 data class MonthlyBudget(
     val id: String,
     val householdId: String,
@@ -55,6 +62,7 @@ data class HouseholdExpense(
     val id: String,
     val householdId: String,
     val categoryId: String,
+    val subcategoryId: String? = null,
     val amount: Money,
     val paidByMemberId: String,
     val occurredAt: Long,
@@ -85,6 +93,7 @@ data class TripExpense(
     val id: String,
     val tripId: String,
     val categoryId: String? = null,
+    val subcategoryId: String? = null,
     val amount: Money,
     val paidByParticipantId: String,
     val occurredAt: Long,

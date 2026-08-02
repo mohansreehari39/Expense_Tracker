@@ -8,6 +8,7 @@ enum class EntityType {
     HOUSEHOLD,
     MEMBER,
     CATEGORY,
+    SUBCATEGORY,
     MONTHLY_BUDGET,
     HOUSEHOLD_EXPENSE,
     TRIP,

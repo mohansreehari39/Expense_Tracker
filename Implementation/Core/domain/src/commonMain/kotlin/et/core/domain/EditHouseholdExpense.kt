@@ -8,6 +8,7 @@ class EditHouseholdExpense(private val repository: Repository) {
     suspend operator fun invoke(
         expenseId: String,
         categoryId: String,
+        subcategoryId: String? = null,
         amount: Money,
         paidByMemberId: String,
         occurredAt: Long,
@@ -16,6 +17,7 @@ class EditHouseholdExpense(private val repository: Repository) {
         val existing = repository.householdExpenseById(expenseId) ?: return null
         val updated = existing.copy(
             categoryId = categoryId,
+            subcategoryId = subcategoryId,
             amount = amount,
             paidByMemberId = paidByMemberId,
             occurredAt = occurredAt,
