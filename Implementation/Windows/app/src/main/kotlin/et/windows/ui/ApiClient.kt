@@ -1,6 +1,7 @@
 package et.windows.ui
 
 import et.windows.server.AddCategoryRequest
+import et.windows.server.AddHouseholdDependentRequest
 import et.windows.server.AddSubcategoryRequest
 import et.windows.server.AddMemberRequest
 import et.windows.server.AddTripExpenseRequest
@@ -8,6 +9,7 @@ import et.windows.server.AddTripParticipantRequest
 import et.windows.server.CategoryDto
 import et.windows.server.CreateHouseholdRequest
 import et.windows.server.CreateTripRequest
+import et.windows.server.HouseholdDependentDto
 import et.windows.server.HouseholdDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.HouseholdResponse
@@ -18,6 +20,7 @@ import et.windows.server.PairedDeviceDto
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.RecordExpenseResponse
 import et.windows.server.RecordHouseholdSettlementRequest
+import et.windows.server.RecordTripSettlementRequest
 import et.windows.server.SetBudgetRequest
 import et.windows.server.SubcategoryDto
 import et.windows.server.SpendingTrendResponse
@@ -25,6 +28,7 @@ import et.windows.server.TripDetailResponse
 import et.windows.server.TripDto
 import et.windows.server.TripExpenseDto
 import et.windows.server.TripParticipantDto
+import et.windows.server.TripSettlementsResponse
 import et.windows.server.UpdateHouseholdRequest
 import et.windows.server.UpdateTripRequest
 import io.ktor.client.HttpClient
@@ -94,6 +98,16 @@ class ApiClient(private val baseUrl: String) {
 
     suspend fun archiveMember(householdId: String, memberId: String) {
         client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
+    }
+
+    suspend fun addHouseholdDependent(householdId: String, name: String, category: String): HouseholdDependentDto =
+        client.post("$baseUrl/api/v1/households/$householdId/dependents") {
+            contentType(ContentType.Application.Json)
+            setBody(AddHouseholdDependentRequest(name, category))
+        }.body()
+
+    suspend fun archiveHouseholdDependent(householdId: String, dependentId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/dependents/$dependentId")
     }
 
     suspend fun recordHouseholdSettlement(householdId: String, request: RecordHouseholdSettlementRequest): HouseholdSettlementsResponse =
@@ -177,6 +191,12 @@ class ApiClient(private val baseUrl: String) {
     suspend fun archiveTripParticipant(tripId: String, participantId: String) {
         client.delete("$baseUrl/api/v1/trips/$tripId/participants/$participantId")
     }
+
+    suspend fun recordTripSettlement(tripId: String, request: RecordTripSettlementRequest): TripSettlementsResponse =
+        client.post("$baseUrl/api/v1/trips/$tripId/settlements") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 
     suspend fun devices(): List<PairedDeviceDto> = client.get("$baseUrl/api/v1/devices").body()
 

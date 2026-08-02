@@ -3,8 +3,16 @@ package et.core.domain
 import et.core.model.HouseholdExpense
 import et.core.model.Money
 
-/** Corrects a mistaken amount, date, category, or payer on an already-recorded expense. */
-class EditHouseholdExpense(private val repository: Repository) {
+/**
+ * Corrects a mistaken amount, date, category, or payer on an already-recorded
+ * expense, recomputing its beneficiary/contribution splits — see
+ * [RecordHouseholdExpense] for what null [beneficiarySplitMode]/
+ * [contributionSplitMode] default to.
+ */
+class EditHouseholdExpense(
+    private val repository: Repository,
+    private val idGenerator: IdGenerator,
+) {
     suspend operator fun invoke(
         expenseId: String,
         categoryId: String,
@@ -13,6 +21,8 @@ class EditHouseholdExpense(private val repository: Repository) {
         paidByMemberId: String,
         occurredAt: Long,
         note: String = "",
+        beneficiarySplitMode: SplitMode? = null,
+        contributionSplitMode: SplitMode? = null,
     ): HouseholdExpense? {
         val existing = repository.householdExpenseById(expenseId) ?: return null
         val updated = existing.copy(
@@ -23,7 +33,9 @@ class EditHouseholdExpense(private val repository: Repository) {
             occurredAt = occurredAt,
             note = note,
         )
-        repository.updateHouseholdExpense(updated)
+        val beneficiaries = HouseholdSplitSupport.resolveBeneficiaries(repository, idGenerator, expenseId, updated.householdId, amount, beneficiarySplitMode)
+        val contributions = HouseholdSplitSupport.resolveContributions(idGenerator, expenseId, amount, paidByMemberId, contributionSplitMode)
+        repository.updateHouseholdExpenseWithSplits(updated, beneficiaries, contributions)
         return updated
     }
 }

@@ -227,6 +227,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
         AddExpenseDialog(
             categories = categories,
             members = members,
+            dependents = householdResponse?.dependents ?: emptyList(),
             currency = currency,
             onDismiss = { showAddExpense = false },
             onCreateCategory = { name -> api.addCategory(householdId, name) },
@@ -245,6 +246,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
         AddExpenseDialog(
             categories = categories,
             members = members,
+            dependents = householdResponse?.dependents ?: emptyList(),
             currency = currency,
             expenseToEdit = expense,
             onDismiss = { expenseToEdit = null },

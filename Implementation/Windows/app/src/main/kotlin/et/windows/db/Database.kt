@@ -81,6 +81,51 @@ private fun migrateExistingDatabase(url: String) {
                 )
                 """.trimIndent(),
             )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS householdDependent (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    householdId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    isArchived INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent(),
+            )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS householdExpenseBeneficiary (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    householdExpenseId TEXT NOT NULL,
+                    memberId TEXT,
+                    dependentId TEXT,
+                    amountMinorUnits INTEGER NOT NULL,
+                    currency TEXT NOT NULL
+                )
+                """.trimIndent(),
+            )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS householdExpenseContribution (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    householdExpenseId TEXT NOT NULL,
+                    memberId TEXT NOT NULL,
+                    amountMinorUnits INTEGER NOT NULL,
+                    currency TEXT NOT NULL
+                )
+                """.trimIndent(),
+            )
+            statement.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tripExpenseContribution (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    tripExpenseId TEXT NOT NULL,
+                    participantId TEXT NOT NULL,
+                    amountMinorUnits INTEGER NOT NULL,
+                    currency TEXT NOT NULL
+                )
+                """.trimIndent(),
+            )
         }
         addColumnIfMissing(connection, "member", "isArchived", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(connection, "tripParticipant", "isArchived", "INTEGER NOT NULL DEFAULT 0")

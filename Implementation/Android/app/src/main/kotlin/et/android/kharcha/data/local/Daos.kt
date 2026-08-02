@@ -112,6 +112,51 @@ interface MemberDao {
 }
 
 @Dao
+interface HouseholdDependentDao {
+    @Query("SELECT * FROM household_dependent WHERE householdId = :householdId AND isArchived = 0")
+    fun observeActive(householdId: String): Flow<List<HouseholdDependentEntity>>
+
+    @Query("SELECT * FROM household_dependent WHERE householdId = :householdId")
+    suspend fun getAll(householdId: String): List<HouseholdDependentEntity>
+
+    @Query("SELECT * FROM household_dependent WHERE id = :id")
+    suspend fun getById(id: String): HouseholdDependentEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(dependent: HouseholdDependentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(dependents: List<HouseholdDependentEntity>)
+
+    @Query("DELETE FROM household_dependent WHERE id = :id")
+    suspend fun delete(id: String)
+}
+
+@Dao
+interface HouseholdExpenseBeneficiaryDao {
+    @Query("SELECT * FROM household_expense_beneficiary WHERE householdExpenseId = :expenseId")
+    suspend fun getForExpense(expenseId: String): List<HouseholdExpenseBeneficiaryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(beneficiaries: List<HouseholdExpenseBeneficiaryEntity>)
+
+    @Query("DELETE FROM household_expense_beneficiary WHERE householdExpenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: String)
+}
+
+@Dao
+interface HouseholdExpenseContributionDao {
+    @Query("SELECT * FROM household_expense_contribution WHERE householdExpenseId = :expenseId")
+    suspend fun getForExpense(expenseId: String): List<HouseholdExpenseContributionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(contributions: List<HouseholdExpenseContributionEntity>)
+
+    @Query("DELETE FROM household_expense_contribution WHERE householdExpenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: String)
+}
+
+@Dao
 interface HouseholdExpenseDao {
     @Query("SELECT * FROM household_expense WHERE householdId = :householdId AND pendingDelete = 0 ORDER BY occurredAt DESC")
     fun observeAll(householdId: String): Flow<List<HouseholdExpenseEntity>>
@@ -202,4 +247,28 @@ interface ActivityExpenseDao {
 
     @Query("DELETE FROM activity_expense WHERE activityId = :activityId AND remoteId IS NOT NULL AND pendingSync = 0 AND pendingDelete = 0")
     suspend fun clearSyncedBeforePull(activityId: String)
+}
+
+@Dao
+interface ActivityExpenseBeneficiaryDao {
+    @Query("SELECT * FROM activity_expense_beneficiary WHERE activityExpenseId = :expenseId")
+    suspend fun getForExpense(expenseId: String): List<ActivityExpenseBeneficiaryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(beneficiaries: List<ActivityExpenseBeneficiaryEntity>)
+
+    @Query("DELETE FROM activity_expense_beneficiary WHERE activityExpenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: String)
+}
+
+@Dao
+interface ActivityExpenseContributionDao {
+    @Query("SELECT * FROM activity_expense_contribution WHERE activityExpenseId = :expenseId")
+    suspend fun getForExpense(expenseId: String): List<ActivityExpenseContributionEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(contributions: List<ActivityExpenseContributionEntity>)
+
+    @Query("DELETE FROM activity_expense_contribution WHERE activityExpenseId = :expenseId")
+    suspend fun deleteForExpense(expenseId: String)
 }

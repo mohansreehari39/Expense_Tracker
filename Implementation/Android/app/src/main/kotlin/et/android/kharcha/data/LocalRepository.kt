@@ -2,10 +2,15 @@ package et.android.kharcha.data
 
 import android.content.Context
 import et.android.kharcha.data.local.ActivityEntity
+import et.android.kharcha.data.local.ActivityExpenseBeneficiaryEntity
+import et.android.kharcha.data.local.ActivityExpenseContributionEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.AppDatabase
 import et.android.kharcha.data.local.CategoryEntity
+import et.android.kharcha.data.local.HouseholdDependentEntity
 import et.android.kharcha.data.local.HouseholdEntity
+import et.android.kharcha.data.local.HouseholdExpenseBeneficiaryEntity
+import et.android.kharcha.data.local.HouseholdExpenseContributionEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.PairedServerEntity
@@ -16,6 +21,14 @@ import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 private val DEFAULT_CATEGORIES = listOf("Groceries", "Utilities", "Rent", "Eating Out", "Other")
+
+/** Equal-split remainder-to-first rule — mirrors Core's `SplitCalculator.splitEqually` (see Implementation/Core/domain/.../SplitCalculation.kt) so equal splits look the same on both apps. */
+private fun equalSplitMinorUnits(totalMinorUnits: Long, ids: List<String>): Map<String, Long> {
+    if (ids.isEmpty()) return emptyMap()
+    val base = totalMinorUnits / ids.size
+    val remainder = totalMinorUnits - base * ids.size
+    return ids.mapIndexed { index, id -> id to (base + if (index == 0) remainder else 0) }.toMap()
+}
 
 /**
  * The app's single source of truth — everything the UI reads/writes goes
@@ -204,9 +217,43 @@ class LocalRepository(context: Context) {
         return member
     }
 
+    fun observeDependents(householdId: String): Flow<List<HouseholdDependentEntity>> = db.householdDependentDao().observeActive(householdId)
+    suspend fun dependents(householdId: String): List<HouseholdDependentEntity> = db.householdDependentDao().getAll(householdId)
+
+    suspend fun addDependent(householdId: String, name: String, category: String): HouseholdDependentEntity {
+        val trimmed = name.trim()
+        val existing = db.householdDependentDao().getAll(householdId)
+            .find { it.category == category && it.name.equals(trimmed, ignoreCase = true) && !it.isArchived }
+        if (existing != null) return existing
+        val dependent = HouseholdDependentEntity(UUID.randomUUID().toString(), householdId, trimmed, category)
+        db.householdDependentDao().upsert(dependent)
+        return dependent
+    }
+
+    /** Called by SyncEngine once a locally-created dependent (remoteId == null) has been pushed to a linked household's server. */
+    suspend fun markDependentSynced(id: String, remoteId: String) {
+        val dependent = db.householdDependentDao().getById(id) ?: return
+        db.householdDependentDao().upsert(dependent.copy(remoteId = remoteId))
+    }
+
+    suspend fun replaceDependentsFromRemote(householdId: String, dependents: List<HouseholdDependentEntity>) {
+        db.householdDependentDao().upsertAll(dependents)
+    }
+
+    suspend fun hardDeleteDependent(id: String) = db.householdDependentDao().delete(id)
+
     fun observeHouseholdExpenses(householdId: String): Flow<List<HouseholdExpenseEntity>> = db.householdExpenseDao().observeAll(householdId)
     suspend fun householdExpenses(householdId: String): List<HouseholdExpenseEntity> = db.householdExpenseDao().getAll(householdId)
+    suspend fun householdExpenseBeneficiaries(expenseId: String): List<HouseholdExpenseBeneficiaryEntity> = db.householdExpenseBeneficiaryDao().getForExpense(expenseId)
+    suspend fun householdExpenseContributions(expenseId: String): List<HouseholdExpenseContributionEntity> = db.householdExpenseContributionDao().getForExpense(expenseId)
 
+    /**
+     * [beneficiaries]/[contributions] are id-to-exact-amount pairs already
+     * resolved by the UI (percentage entry is UI-only, see SplitEditor) —
+     * null means the default: equal-split across every active member for
+     * beneficiaries (never dependents), 100% on [paidByMemberId] for
+     * contributions.
+     */
     suspend fun recordHouseholdExpense(
         householdId: String,
         categoryId: String,
@@ -216,11 +263,14 @@ class LocalRepository(context: Context) {
         paidByMemberId: String,
         occurredAt: Long,
         note: String,
+        beneficiaries: List<Pair<String, Long>>? = null,
+        contributions: List<Pair<String, Long>>? = null,
     ) {
         val linked = db.householdDao().get(householdId)?.pairedServerId != null
+        val expenseId = UUID.randomUUID().toString()
         db.householdExpenseDao().upsert(
             HouseholdExpenseEntity(
-                id = UUID.randomUUID().toString(),
+                id = expenseId,
                 householdId = householdId,
                 categoryId = categoryId,
                 subcategoryId = subcategoryId,
@@ -233,11 +283,52 @@ class LocalRepository(context: Context) {
                 pendingSync = linked,
             ),
         )
+        saveHouseholdExpenseSplits(expenseId, householdId, amountMinorUnits, currency, paidByMemberId, beneficiaries, contributions)
     }
 
-    suspend fun updateHouseholdExpense(expense: HouseholdExpenseEntity) {
+    private suspend fun saveHouseholdExpenseSplits(
+        expenseId: String,
+        householdId: String,
+        amountMinorUnits: Long,
+        currency: String,
+        paidByMemberId: String,
+        beneficiaries: List<Pair<String, Long>>?,
+        contributions: List<Pair<String, Long>>?,
+    ) {
+        val dependentIds = db.householdDependentDao().getAll(householdId).map { it.id }.toSet()
+        val resolvedBeneficiaries = beneficiaries
+            ?: equalSplitMinorUnits(amountMinorUnits, db.memberDao().getAll(householdId).filter { !it.isArchived }.map { it.id }).toList()
+        val resolvedContributions = contributions ?: listOf(paidByMemberId to amountMinorUnits)
+
+        db.householdExpenseBeneficiaryDao().deleteForExpense(expenseId)
+        db.householdExpenseBeneficiaryDao().upsertAll(
+            resolvedBeneficiaries.map { (id, amount) ->
+                HouseholdExpenseBeneficiaryEntity(
+                    id = UUID.randomUUID().toString(),
+                    householdExpenseId = expenseId,
+                    memberId = if (id in dependentIds) null else id,
+                    dependentId = if (id in dependentIds) id else null,
+                    amountMinorUnits = amount,
+                    currency = currency,
+                )
+            },
+        )
+        db.householdExpenseContributionDao().deleteForExpense(expenseId)
+        db.householdExpenseContributionDao().upsertAll(
+            resolvedContributions.map { (memberId, amount) ->
+                HouseholdExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, memberId, amount, currency)
+            },
+        )
+    }
+
+    suspend fun updateHouseholdExpense(
+        expense: HouseholdExpenseEntity,
+        beneficiaries: List<Pair<String, Long>>? = null,
+        contributions: List<Pair<String, Long>>? = null,
+    ) {
         val linked = db.householdDao().get(expense.householdId)?.pairedServerId != null
         db.householdExpenseDao().upsert(expense.copy(pendingSync = linked))
+        saveHouseholdExpenseSplits(expense.id, expense.householdId, expense.amountMinorUnits, expense.currency, expense.paidByMemberId, beneficiaries, contributions)
     }
 
     suspend fun deleteHouseholdExpense(expense: HouseholdExpenseEntity) {
@@ -245,6 +336,8 @@ class LocalRepository(context: Context) {
         if (linked && expense.remoteId != null) {
             db.householdExpenseDao().upsert(expense.copy(pendingDelete = true))
         } else {
+            db.householdExpenseBeneficiaryDao().deleteForExpense(expense.id)
+            db.householdExpenseContributionDao().deleteForExpense(expense.id)
             db.householdExpenseDao().deleteHard(expense.id)
         }
     }
@@ -302,12 +395,25 @@ class LocalRepository(context: Context) {
 
     fun observeActivityExpenses(activityId: String): Flow<List<ActivityExpenseEntity>> = db.activityExpenseDao().observeAll(activityId)
     suspend fun activityExpenses(activityId: String): List<ActivityExpenseEntity> = db.activityExpenseDao().getAll(activityId)
+    suspend fun activityExpenseBeneficiaries(expenseId: String): List<ActivityExpenseBeneficiaryEntity> = db.activityExpenseBeneficiaryDao().getForExpense(expenseId)
+    suspend fun activityExpenseContributions(expenseId: String): List<ActivityExpenseContributionEntity> = db.activityExpenseContributionDao().getForExpense(expenseId)
 
-    suspend fun addActivityExpense(activityId: String, amountMinorUnits: Long, currency: String, paidByParticipantId: String, occurredAt: Long, note: String) {
+    /** [beneficiaries]/[contributions] are already-resolved id-to-exact-amount pairs — null means equal-split across every participant / 100% on [paidByParticipantId], same convention as [recordHouseholdExpense]. */
+    suspend fun addActivityExpense(
+        activityId: String,
+        amountMinorUnits: Long,
+        currency: String,
+        paidByParticipantId: String,
+        occurredAt: Long,
+        note: String,
+        beneficiaries: List<Pair<String, Long>>? = null,
+        contributions: List<Pair<String, Long>>? = null,
+    ) {
         val linked = db.activityDao().get(activityId)?.pairedServerId != null
+        val expenseId = UUID.randomUUID().toString()
         db.activityExpenseDao().upsert(
             ActivityExpenseEntity(
-                id = UUID.randomUUID().toString(),
+                id = expenseId,
                 activityId = activityId,
                 amountMinorUnits = amountMinorUnits,
                 currency = currency,
@@ -318,11 +424,44 @@ class LocalRepository(context: Context) {
                 pendingSync = linked,
             ),
         )
+        saveActivityExpenseSplits(expenseId, activityId, amountMinorUnits, currency, paidByParticipantId, beneficiaries, contributions)
     }
 
-    suspend fun updateActivityExpense(expense: ActivityExpenseEntity) {
+    private suspend fun saveActivityExpenseSplits(
+        expenseId: String,
+        activityId: String,
+        amountMinorUnits: Long,
+        currency: String,
+        paidByParticipantId: String,
+        beneficiaries: List<Pair<String, Long>>?,
+        contributions: List<Pair<String, Long>>?,
+    ) {
+        val resolvedBeneficiaries = beneficiaries
+            ?: equalSplitMinorUnits(amountMinorUnits, db.participantDao().getAll(activityId).filter { !it.isArchived }.map { it.id }).toList()
+        val resolvedContributions = contributions ?: listOf(paidByParticipantId to amountMinorUnits)
+
+        db.activityExpenseBeneficiaryDao().deleteForExpense(expenseId)
+        db.activityExpenseBeneficiaryDao().upsertAll(
+            resolvedBeneficiaries.map { (participantId, amount) ->
+                ActivityExpenseBeneficiaryEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency)
+            },
+        )
+        db.activityExpenseContributionDao().deleteForExpense(expenseId)
+        db.activityExpenseContributionDao().upsertAll(
+            resolvedContributions.map { (participantId, amount) ->
+                ActivityExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency)
+            },
+        )
+    }
+
+    suspend fun updateActivityExpense(
+        expense: ActivityExpenseEntity,
+        beneficiaries: List<Pair<String, Long>>? = null,
+        contributions: List<Pair<String, Long>>? = null,
+    ) {
         val linked = db.activityDao().get(expense.activityId)?.pairedServerId != null
         db.activityExpenseDao().upsert(expense.copy(pendingSync = linked))
+        saveActivityExpenseSplits(expense.id, expense.activityId, expense.amountMinorUnits, expense.currency, expense.paidByParticipantId, beneficiaries, contributions)
     }
 
     suspend fun deleteActivityExpense(expense: ActivityExpenseEntity) {
@@ -330,6 +469,8 @@ class LocalRepository(context: Context) {
         if (linked && expense.remoteId != null) {
             db.activityExpenseDao().upsert(expense.copy(pendingDelete = true))
         } else {
+            db.activityExpenseBeneficiaryDao().deleteForExpense(expense.id)
+            db.activityExpenseContributionDao().deleteForExpense(expense.id)
             db.activityExpenseDao().deleteHard(expense.id)
         }
     }
@@ -369,9 +510,47 @@ class LocalRepository(context: Context) {
     suspend fun hardDeleteHouseholdExpense(id: String) = db.householdExpenseDao().deleteHard(id)
     suspend fun hardDeleteActivityExpense(id: String) = db.activityExpenseDao().deleteHard(id)
 
+    /** Replaces a single expense's beneficiary/contribution rows wholesale from the server's copy — see SyncEngine.pullHousehold. [beneficiaries] is (memberId, dependentId, amount), exactly one of the first two set. */
+    suspend fun replaceHouseholdExpenseSplitsFromRemote(
+        expenseId: String,
+        currency: String,
+        beneficiaries: List<Triple<String?, String?, Long>>,
+        contributions: List<Pair<String, Long>>,
+    ) {
+        db.householdExpenseBeneficiaryDao().deleteForExpense(expenseId)
+        db.householdExpenseBeneficiaryDao().upsertAll(
+            beneficiaries.map { (memberId, dependentId, amount) ->
+                HouseholdExpenseBeneficiaryEntity(UUID.randomUUID().toString(), expenseId, memberId, dependentId, amount, currency)
+            },
+        )
+        db.householdExpenseContributionDao().deleteForExpense(expenseId)
+        db.householdExpenseContributionDao().upsertAll(
+            contributions.map { (memberId, amount) ->
+                HouseholdExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, memberId, amount, currency)
+            },
+        )
+    }
+
     suspend fun replaceSyncedHouseholdExpenses(householdId: String, expenses: List<HouseholdExpenseEntity>, keepLocalIds: Set<String>) {
         db.householdExpenseDao().clearSyncedBeforePull(householdId)
         db.householdExpenseDao().upsertAll(expenses.filterNot { it.id in keepLocalIds })
+    }
+
+    /** Replaces a single expense's beneficiary/contribution rows wholesale from the server's copy — see SyncEngine.pullActivity. */
+    suspend fun replaceActivityExpenseSplitsFromRemote(
+        expenseId: String,
+        currency: String,
+        beneficiaries: List<Pair<String, Long>>,
+        contributions: List<Pair<String, Long>>,
+    ) {
+        db.activityExpenseBeneficiaryDao().deleteForExpense(expenseId)
+        db.activityExpenseBeneficiaryDao().upsertAll(
+            beneficiaries.map { (participantId, amount) -> ActivityExpenseBeneficiaryEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency) },
+        )
+        db.activityExpenseContributionDao().deleteForExpense(expenseId)
+        db.activityExpenseContributionDao().upsertAll(
+            contributions.map { (participantId, amount) -> ActivityExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency) },
+        )
     }
 
     suspend fun replaceSyncedActivityExpenses(activityId: String, expenses: List<ActivityExpenseEntity>, keepLocalIds: Set<String>) {

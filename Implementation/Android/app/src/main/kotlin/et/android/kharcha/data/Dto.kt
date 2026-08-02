@@ -40,14 +40,35 @@ data class SubcategoryDto(val id: String, val name: String)
 @Serializable
 data class MemberDto(val id: String, val displayName: String)
 
+/** [category] is one of "PET"/"KID"/"PARENT". */
+@Serializable
+data class HouseholdDependentDto(val id: String, val name: String, val category: String)
+
+@Serializable
+data class AddHouseholdDependentRequest(val name: String, val category: String)
+
 @Serializable
 data class HouseholdResponse(
     val household: HouseholdDto,
     val categories: List<CategoryDto>,
     val members: List<MemberDto>,
+    val dependents: List<HouseholdDependentDto> = emptyList(),
     /** Only populated when [HouseholdDto.settlementEnabled] — computed server-side since it needs every member's settlement history, not just this device's local expenses. */
     val balances: Map<String, MoneyDto> = emptyMap(),
     val suggestedSettlements: List<SuggestedTransferDto> = emptyList(),
+)
+
+/**
+ * Wire form of Core's `SplitMode` — see the matching type in Windows'
+ * server Dto.kt for the full contract. UI-only convenience: percentages
+ * are always resolved to concrete money server-side before persisting.
+ */
+@Serializable
+data class SplitModeDto(
+    val type: String,
+    val participantIds: List<String>? = null,
+    val exactAmountsMinorUnits: Map<String, Long>? = null,
+    val percentages: Map<String, Double>? = null,
 )
 
 @Serializable
@@ -93,6 +114,13 @@ data class MonthBudgetResponse(
 @Serializable
 data class SetBudgetRequest(val year: Int, val month: Int, val totalAmountMinorUnits: Long, val currency: String)
 
+/** Exactly one of [memberId]/[dependentId] is set. */
+@Serializable
+data class HouseholdExpenseBeneficiaryDto(val id: String, val memberId: String? = null, val dependentId: String? = null, val amount: MoneyDto)
+
+@Serializable
+data class HouseholdExpenseContributionDto(val id: String, val memberId: String, val amount: MoneyDto)
+
 @Serializable
 data class HouseholdExpenseDto(
     val id: String,
@@ -102,6 +130,8 @@ data class HouseholdExpenseDto(
     val paidByMemberId: String,
     val occurredAt: Long,
     val note: String,
+    val beneficiaries: List<HouseholdExpenseBeneficiaryDto> = emptyList(),
+    val contributions: List<HouseholdExpenseContributionDto> = emptyList(),
 )
 
 @Serializable
@@ -113,6 +143,8 @@ data class RecordExpenseRequest(
     val paidByMemberId: String,
     val occurredAt: Long,
     val note: String = "",
+    val beneficiarySplit: SplitModeDto? = null,
+    val contributionSplit: SplitModeDto? = null,
 )
 
 @Serializable
@@ -138,16 +170,35 @@ data class TripParticipantDto(val id: String, val displayName: String)
 data class AddTripParticipantRequest(val displayName: String)
 
 @Serializable
+data class ExpenseSplitDto(val id: String, val participantId: String, val amount: MoneyDto)
+
+@Serializable
+data class TripExpenseContributionDto(val id: String, val participantId: String, val amount: MoneyDto)
+
+@Serializable
 data class TripExpenseDto(
     val id: String,
     val amount: MoneyDto,
     val paidByParticipantId: String,
     val occurredAt: Long,
     val note: String,
+    val beneficiaries: List<ExpenseSplitDto> = emptyList(),
+    val contributions: List<TripExpenseContributionDto> = emptyList(),
 )
 
 @Serializable
 data class SuggestedTransferDto(val fromParticipantId: String, val toParticipantId: String, val amount: MoneyDto)
+
+@Serializable
+data class RecordTripSettlementRequest(
+    val fromParticipantId: String,
+    val toParticipantId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+@Serializable
+data class TripSettlementsResponse(val balances: Map<String, MoneyDto>, val suggestedSettlements: List<SuggestedTransferDto>)
 
 @Serializable
 data class TripDetailResponse(
@@ -178,6 +229,8 @@ data class AddTripExpenseRequest(
     val paidByParticipantId: String,
     val occurredAt: Long,
     val note: String = "",
+    val beneficiarySplit: SplitModeDto? = null,
+    val contributionSplit: SplitModeDto? = null,
 )
 
 @Serializable

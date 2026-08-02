@@ -30,9 +30,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.BudgetMath
 import et.android.kharcha.data.LocalRepository
+import et.android.kharcha.data.RecordTripSettlementRequest
+import et.android.kharcha.data.SuggestedTransferDto
+import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.ui.theme.Rose
@@ -44,17 +48,43 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
     val participants by repo.observeParticipants(activityId).collectAsState(initial = emptyList())
     val expenses by repo.observeActivityExpenses(activityId).collectAsState(initial = emptyList())
     var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
+    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransferDto>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<ActivityExpenseEntity?>(null) }
     var expenseToDelete by remember { mutableStateOf<ActivityExpenseEntity?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     LaunchedEffect(activityId) {
         repo.ensureMyParticipation(activityId, myName)
     }
 
-    LaunchedEffect(activityId, participants, expenses) {
-        balances = repo.activityBalances(activityId)
+    suspend fun refreshBalances() {
+        val current = activity
+        val pairedServerId = current?.pairedServerId
+        val remoteId = current?.remoteId
+        val detail = if (pairedServerId != null && remoteId != null) {
+            val server = repo.pairedServer(pairedServerId)
+            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+            api?.let { runCatching { it.trip(remoteId) }.getOrNull() }
+        } else {
+            null
+        }
+        if (detail != null) {
+            val currentParticipants = repo.participants(activityId)
+            balances = detail.balances.mapNotNull { (remoteParticipantId, money) ->
+                val localId = currentParticipants.find { it.remoteId == remoteParticipantId }?.id ?: return@mapNotNull null
+                localId to money.minorUnits
+            }.toMap()
+            suggestedSettlements = detail.suggestedSettlements
+        } else {
+            balances = repo.activityBalances(activityId)
+            suggestedSettlements = emptyList()
+        }
+    }
+
+    LaunchedEffect(activityId, participants, expenses, activity?.pairedServerId) {
+        refreshBalances()
     }
 
     val current = activity
@@ -116,6 +146,43 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
                         }
                     }
 
+                    if (suggestedSettlements.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("Suggested Settlements", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp)) {
+                                suggestedSettlements.forEach { s ->
+                                    // s.fromParticipantId/toParticipantId are remote participant ids (straight from the server's response) — never local ids.
+                                    val fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
+                                    val toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                        Text("$fromName → $toName: ${formatMoney(s.amount.minorUnits, s.amount.currency)}", modifier = Modifier.weight(1f))
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                val remoteId = current?.remoteId
+                                                val pairedServerId = current?.pairedServerId
+                                                if (remoteId != null && pairedServerId != null) {
+                                                    val server = repo.pairedServer(pairedServerId)
+                                                    val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+                                                    api?.let {
+                                                        runCatching {
+                                                            it.recordTripSettlement(
+                                                                remoteId,
+                                                                RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
+                                                            )
+                                                        }
+                                                    }
+                                                    refreshBalances()
+                                                }
+                                            }
+                                        }) { Text("Settle") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(24.dp))
                     Text("Expenses", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
@@ -154,9 +221,9 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
             currency = currency,
             defaultParticipantId = myParticipantId,
             onDismiss = { showAddExpense = false },
-            onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
+            onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note, beneficiaries, contributions ->
                 scope.launch {
-                    repo.addActivityExpense(activityId, amountMinorUnits, currency, paidByParticipantId, occurredAt, note)
+                    repo.addActivityExpense(activityId, amountMinorUnits, currency, paidByParticipantId, occurredAt, note, beneficiaries, contributions)
                     showAddExpense = false
                 }
             },
@@ -171,7 +238,7 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
                 defaultParticipantId = myParticipantId,
                 expenseToEdit = expense,
                 onDismiss = { expenseToEdit = null },
-                onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
+                onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note, beneficiaries, contributions ->
                     scope.launch {
                         repo.updateActivityExpense(
                             expense.copy(
@@ -180,6 +247,8 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
                                 occurredAt = occurredAt,
                                 note = note,
                             ),
+                            beneficiaries,
+                            contributions,
                         )
                         expenseToEdit = null
                     }

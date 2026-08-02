@@ -60,6 +60,7 @@ private fun inRange(occurredAt: Long, range: DateRange): Boolean {
 fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, household: HouseholdEntity?) {
     val categories by repo.observeCategories(householdId).collectAsState(initial = emptyList())
     val members by repo.observeMembers(householdId).collectAsState(initial = emptyList())
+    val dependents by repo.observeDependents(householdId).collectAsState(initial = emptyList())
     val expenses by repo.observeHouseholdExpenses(householdId).collectAsState(initial = emptyList())
     var weekIndex by remember { mutableStateOf(0) }
     var showAddExpense by remember { mutableStateOf(false) }
@@ -265,15 +266,19 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
         AddHouseholdExpenseDialog(
             categories = categories,
             members = members,
+            dependents = dependents,
             currency = currency,
             defaultMemberId = myMemberId,
             onCreateCategory = { name -> repo.addCategory(householdId, name) },
             onGetSubcategories = { categoryId -> repo.subcategories(categoryId) },
             onCreateSubcategory = { categoryId, name -> repo.addSubcategory(categoryId, name) },
             onDismiss = { showAddExpense = false },
-            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
+            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note, beneficiaries, contributions ->
                 scope.launch {
-                    repo.recordHouseholdExpense(householdId, categoryId, subcategoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note)
+                    repo.recordHouseholdExpense(
+                        householdId, categoryId, subcategoryId, amountMinorUnits, currency, paidByMemberId, occurredAt, note,
+                        beneficiaries, contributions,
+                    )
                     showAddExpense = false
                 }
             },
@@ -284,6 +289,7 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
         AddHouseholdExpenseDialog(
             categories = categories,
             members = members,
+            dependents = dependents,
             currency = currency,
             defaultMemberId = myMemberId,
             onCreateCategory = { name -> repo.addCategory(householdId, name) },
@@ -291,7 +297,7 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
             onCreateSubcategory = { categoryId, name -> repo.addSubcategory(categoryId, name) },
             expenseToEdit = expense,
             onDismiss = { expenseToEdit = null },
-            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note ->
+            onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note, beneficiaries, contributions ->
                 scope.launch {
                     repo.updateHouseholdExpense(
                         expense.copy(
@@ -302,6 +308,8 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
                             occurredAt = occurredAt,
                             note = note,
                         ),
+                        beneficiaries,
+                        contributions,
                     )
                     expenseToEdit = null
                 }

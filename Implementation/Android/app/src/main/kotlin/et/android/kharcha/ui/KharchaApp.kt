@@ -339,12 +339,14 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
         val household = households.find { it.id == id }
         if (household != null) {
             val members by repo.observeMembers(id).collectAsState(initial = emptyList())
+            val dependents by repo.observeDependents(id).collectAsState(initial = emptyList())
             HouseholdSettingsDialog(
                 currentName = household.name,
                 currentBudgetMinorUnits = household.defaultBudgetMinorUnits,
                 currentCurrency = household.currency,
                 currentSettlementEnabled = household.settlementEnabled,
                 members = members,
+                dependents = dependents,
                 onDismiss = { householdSettingsTarget = null },
                 onSubmit = { name, budgetMinorUnits, budgetCurrency, settlementEnabled ->
                     scope.launch {
@@ -355,6 +357,12 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                 onRemoveMember = { memberId ->
                     scope.launch {
                         removeMemberEverywhere(context, repo, household, memberId)
+                    }
+                },
+                onAddDependent = { name, category -> repo.addDependent(id, name, category) },
+                onRemoveDependent = { dependentId ->
+                    scope.launch {
+                        removeDependentEverywhere(context, repo, household, dependentId)
                     }
                 },
             )
@@ -405,6 +413,21 @@ private suspend fun removeMemberEverywhere(context: android.content.Context, rep
         }
     }
     repo.hardDeleteMember(memberId)
+}
+
+private suspend fun removeDependentEverywhere(context: android.content.Context, repo: LocalRepository, household: HouseholdEntity, dependentId: String) {
+    val dependent = repo.dependents(household.id).find { it.id == dependentId }
+    val remoteHouseholdId = household.remoteId
+    val remoteDependentId = dependent?.remoteId
+    val pairedServerId = household.pairedServerId
+    if (remoteHouseholdId != null && remoteDependentId != null && pairedServerId != null) {
+        val server = repo.pairedServer(pairedServerId)
+        if (server != null) {
+            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
+            api?.let { runCatching { it.archiveHouseholdDependent(remoteHouseholdId, remoteDependentId) } }
+        }
+    }
+    repo.hardDeleteDependent(dependentId)
 }
 
 private suspend fun removeParticipantEverywhere(context: android.content.Context, repo: LocalRepository, activity: ActivityEntity, participantId: String) {
