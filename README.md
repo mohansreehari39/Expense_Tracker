@@ -196,8 +196,33 @@ pass next session once the installer launches cleanly.
       with the new one-time secret, computer-name QR display,
       Android-created household syncing to Windows, spending trends
       screen, settle button, budget figure rows.
-
-### V2 — planned
+- [ ] **Subcategories.** Each category can have user-defined
+      subcategories, managed almost identically to categories themselves
+      (create/select from the same Add Expense picker flow). Example:
+      category "Meat" has subcategories "Fish", "Chicken", "Mutton".
+      Subcategory is optional on an expense; category rollups/trends
+      should still work when it's absent.
+- [ ] **Expense beneficiaries ("who all are included in the expense"),
+      household + activity.** Splits *who the money was spent on*, as
+      opposed to who paid (see next item). A single expense can be
+      attributed across multiple beneficiaries with an explicit amount
+      each, and those amounts must sum to the expense total (validated,
+      not silently rebalanced). For households specifically, non-member
+      beneficiary categories are supported — pets/kids/parents — which
+      can receive spend but never contribute to it (excluded from "who
+      chipped in" and from equal-split default calculations). For
+      activities (trips), beneficiaries are just the participant list.
+      Default behavior: split equally among eligible beneficiaries
+      (household: members only, never pets/kids/parents; activity: all
+      participants), shown to the user as an editable starting point —
+      e.g. a trip expense that 3 of 4 friends consumed defaults to an
+      equal 3-way split with the 4th excluded, not silently included.
+- [ ] **Expense contributors ("who all chipped in"), household +
+      activity.** Splits *who actually paid* for an expense — how much
+      each contributor put toward the total, independent of the
+      beneficiary split above. Default: 100% attributed to whoever is
+      entering the expense, editable from there. This is the payer side
+      of the ledger that `SettleUp`/balance calculations should read from.
 
 - [ ] **Direct Android-to-Android pairing/sync** — the headline V2
       feature. Join a household/activity phone-to-phone without going
