@@ -15,12 +15,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CategoryEntity::class,
         SubcategoryEntity::class,
         MemberEntity::class,
+        HouseholdDependentEntity::class,
         HouseholdExpenseEntity::class,
+        HouseholdExpenseBeneficiaryEntity::class,
+        HouseholdExpenseContributionEntity::class,
         ActivityEntity::class,
         ParticipantEntity::class,
         ActivityExpenseEntity::class,
+        ActivityExpenseBeneficiaryEntity::class,
+        ActivityExpenseContributionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,10 +35,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun subcategoryDao(): SubcategoryDao
     abstract fun memberDao(): MemberDao
+    abstract fun householdDependentDao(): HouseholdDependentDao
     abstract fun householdExpenseDao(): HouseholdExpenseDao
+    abstract fun householdExpenseBeneficiaryDao(): HouseholdExpenseBeneficiaryDao
+    abstract fun householdExpenseContributionDao(): HouseholdExpenseContributionDao
     abstract fun activityDao(): ActivityDao
     abstract fun participantDao(): ParticipantDao
     abstract fun activityExpenseDao(): ActivityExpenseDao
+    abstract fun activityExpenseBeneficiaryDao(): ActivityExpenseBeneficiaryDao
+    abstract fun activityExpenseContributionDao(): ActivityExpenseContributionDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -66,9 +76,71 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS household_dependent (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        householdId TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        isArchived INTEGER NOT NULL DEFAULT 0,
+                        remoteId TEXT
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS household_expense_beneficiary (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        householdExpenseId TEXT NOT NULL,
+                        memberId TEXT,
+                        dependentId TEXT,
+                        amountMinorUnits INTEGER NOT NULL,
+                        currency TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS household_expense_contribution (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        householdExpenseId TEXT NOT NULL,
+                        memberId TEXT NOT NULL,
+                        amountMinorUnits INTEGER NOT NULL,
+                        currency TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS activity_expense_beneficiary (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        activityExpenseId TEXT NOT NULL,
+                        participantId TEXT NOT NULL,
+                        amountMinorUnits INTEGER NOT NULL,
+                        currency TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS activity_expense_contribution (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        activityExpenseId TEXT NOT NULL,
+                        participantId TEXT NOT NULL,
+                        amountMinorUnits INTEGER NOT NULL,
+                        currency TEXT NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "kharcha.db")
-                .addMigrations(MIGRATION_5_6)
+                .addMigrations(MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 .also { instance = it }
         }

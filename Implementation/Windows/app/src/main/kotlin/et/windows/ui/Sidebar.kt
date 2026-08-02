@@ -79,6 +79,7 @@ fun Sidebar(
     var showPairDevice by remember { mutableStateOf(false) }
     var settingsTarget by remember { mutableStateOf<SettingsTarget?>(null) }
     var showUpdateCheck by remember { mutableStateOf(false) }
+    var showDataLocation by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     suspend fun reload() {
@@ -185,10 +186,21 @@ fun Sidebar(
         Text("Check for Updates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("v${et.windows.APP_VERSION}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    Row(
+        Modifier.fillMaxWidth().clickable { showDataLocation = true }.padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Data Location", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     }
 
     if (showUpdateCheck) {
         UpdateCheckDialog(onDismiss = { showUpdateCheck = false })
+    }
+
+    if (showDataLocation) {
+        DataLocationDialog(onDismiss = { showDataLocation = false })
     }
 
     if (showPairDevice) {

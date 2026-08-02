@@ -3,6 +3,7 @@ package et.android.kharcha.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.CategoryEntity
+import et.android.kharcha.data.local.HouseholdDependentEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.SubcategoryEntity
@@ -32,6 +34,7 @@ import et.android.kharcha.data.local.SubcategoryEntity
 fun AddHouseholdExpenseDialog(
     categories: List<CategoryEntity>,
     members: List<MemberEntity>,
+    dependents: List<HouseholdDependentEntity>,
     currency: String,
     defaultMemberId: String?,
     expenseToEdit: HouseholdExpenseEntity? = null,
@@ -39,7 +42,16 @@ fun AddHouseholdExpenseDialog(
     onCreateCategory: suspend (String) -> CategoryEntity,
     onGetSubcategories: suspend (categoryId: String) -> List<SubcategoryEntity>,
     onCreateSubcategory: suspend (categoryId: String, name: String) -> SubcategoryEntity,
-    onSubmit: (categoryId: String, subcategoryId: String?, amountMinorUnits: Long, paidByMemberId: String, occurredAt: Long, note: String) -> Unit,
+    onSubmit: (
+        categoryId: String,
+        subcategoryId: String?,
+        amountMinorUnits: Long,
+        paidByMemberId: String,
+        occurredAt: Long,
+        note: String,
+        beneficiaries: List<Pair<String, Long>>?,
+        contributions: List<Pair<String, Long>>?,
+    ) -> Unit,
 ) {
     var amountText by remember { mutableStateOf(expenseToEdit?.let { (it.amountMinorUnits / 100.0).toString() } ?: "") }
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
@@ -49,6 +61,8 @@ fun AddHouseholdExpenseDialog(
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     var subcategories by remember { mutableStateOf(emptyList<SubcategoryEntity>()) }
     var selectedMemberId by remember { mutableStateOf(expenseToEdit?.paidByMemberId ?: defaultMemberId ?: members.firstOrNull()?.id) }
+    var beneficiarySplit by remember { mutableStateOf<List<Pair<String, Long>>?>(null) }
+    var contributionSplit by remember { mutableStateOf<List<Pair<String, Long>>?>(null) }
     val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && selectedMemberId != null
 
@@ -129,12 +143,43 @@ fun AddHouseholdExpenseDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+
+                SplitEditor(
+                    label = "Who's it for",
+                    candidates = members.map { SplitCandidate(it.id, it.displayName) } +
+                        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") },
+                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
+                    currency = currency,
+                    defaultSelectedIds = members.map { it.id }.toSet(),
+                    onSplitChanged = { beneficiarySplit = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                SplitEditor(
+                    label = "Who chipped in",
+                    candidates = members.map { SplitCandidate(it.id, it.displayName) },
+                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
+                    currency = currency,
+                    defaultSelectedIds = setOfNotNull(selectedMemberId),
+                    onSplitChanged = { contributionSplit = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
             }
         },
         confirmButton = {
             Button(
                 enabled = canSubmit,
-                onClick = { onSubmit(selectedCategoryId!!, selectedSubcategoryId, amountMinorUnits!!, selectedMemberId!!, occurredAt, note) },
+                onClick = {
+                    onSubmit(
+                        selectedCategoryId!!,
+                        selectedSubcategoryId,
+                        amountMinorUnits!!,
+                        selectedMemberId!!,
+                        occurredAt,
+                        note,
+                        beneficiarySplit,
+                        contributionSplit,
+                    )
+                },
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

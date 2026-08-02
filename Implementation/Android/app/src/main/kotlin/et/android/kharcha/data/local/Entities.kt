@@ -85,6 +85,43 @@ data class MemberEntity(
     val remoteId: String? = null,
 )
 
+/** Pet/kid/parent — a household beneficiary that never chips in. [category] is one of "PET"/"KID"/"PARENT". */
+@Entity(tableName = "household_dependent")
+data class HouseholdDependentEntity(
+    @PrimaryKey val id: String,
+    val householdId: String,
+    val name: String,
+    val category: String,
+    val isArchived: Boolean = false,
+    val remoteId: String? = null,
+)
+
+/**
+ * "Who all is included in the expense" for a [HouseholdExpenseEntity] —
+ * exactly one of [memberId]/[dependentId] is set. Always resynced
+ * wholesale alongside its parent expense (delete-and-reinsert), never
+ * tracked with its own pendingSync — see SyncEngine.pushHouseholdPending.
+ */
+@Entity(tableName = "household_expense_beneficiary")
+data class HouseholdExpenseBeneficiaryEntity(
+    @PrimaryKey val id: String,
+    val householdExpenseId: String,
+    val memberId: String? = null,
+    val dependentId: String? = null,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+/** "Who all chipped in" for a [HouseholdExpenseEntity] — only ever [Member]s. */
+@Entity(tableName = "household_expense_contribution")
+data class HouseholdExpenseContributionEntity(
+    @PrimaryKey val id: String,
+    val householdExpenseId: String,
+    val memberId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
 /**
  * [pendingSync]/[pendingDelete] track offline edits still waiting to reach
  * a paired server — see [et.android.kharcha.data.SyncEngine]. Irrelevant
@@ -142,4 +179,24 @@ data class ActivityExpenseEntity(
     val remoteId: String?,
     val pendingSync: Boolean = false,
     val pendingDelete: Boolean = false,
+)
+
+/** "Who all is included in the expense" for an [ActivityExpenseEntity] — the trip equivalent of [HouseholdExpenseBeneficiaryEntity]. Always resynced wholesale alongside its parent expense. */
+@Entity(tableName = "activity_expense_beneficiary")
+data class ActivityExpenseBeneficiaryEntity(
+    @PrimaryKey val id: String,
+    val activityExpenseId: String,
+    val participantId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+/** "Who all chipped in" for an [ActivityExpenseEntity]. */
+@Entity(tableName = "activity_expense_contribution")
+data class ActivityExpenseContributionEntity(
+    @PrimaryKey val id: String,
+    val activityExpenseId: String,
+    val participantId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
 )

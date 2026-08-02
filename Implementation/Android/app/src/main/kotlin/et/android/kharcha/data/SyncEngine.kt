@@ -2,10 +2,15 @@ package et.android.kharcha.data
 
 import android.content.Context
 import et.android.kharcha.data.local.ActivityEntity
+import et.android.kharcha.data.local.ActivityExpenseBeneficiaryEntity
+import et.android.kharcha.data.local.ActivityExpenseContributionEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.CategoryEntity
+import et.android.kharcha.data.local.HouseholdDependentEntity
 import et.android.kharcha.data.local.SubcategoryEntity
 import et.android.kharcha.data.local.HouseholdEntity
+import et.android.kharcha.data.local.HouseholdExpenseBeneficiaryEntity
+import et.android.kharcha.data.local.HouseholdExpenseContributionEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.PairedServerEntity
@@ -175,6 +180,7 @@ object SyncEngine {
         val remoteId = household.remoteId ?: return
         pushPendingCategories(repo, api, household.id, remoteId)
         pushPendingSubcategories(repo, api, household.id, remoteId)
+        pushPendingDependents(repo, api, household.id, remoteId)
         pushHouseholdConfig(repo, api, household, remoteId)
         pushHouseholdPending(repo, api, household.id, remoteId)
         pullHousehold(repo, api, household.id)
@@ -212,15 +218,43 @@ object SyncEngine {
         }
     }
 
+    /** Dependents created locally have no remoteId until pushed here — same ordering requirement as [pushPendingCategories], must run before [pushHouseholdPending] since a pending beneficiary referencing one otherwise finds no remoteId and gets dropped from the split it's part of. */
+    private suspend fun pushPendingDependents(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
+        for (dependent in repo.dependents(householdId).filter { it.remoteId == null }) {
+            val created = runCatching { api.addHouseholdDependent(remoteHouseholdId, dependent.name, dependent.category) }.getOrNull() ?: continue
+            repo.markDependentSynced(dependent.id, created.id)
+        }
+    }
+
     private suspend fun pushHouseholdPending(repo: LocalRepository, api: ApiClient, householdId: String, remoteHouseholdId: String) {
+        val members = repo.members(householdId)
+        val dependents = repo.dependents(householdId)
         for (expense in repo.pendingHouseholdExpenses(householdId)) {
             val categoryRemoteId = repo.categories(householdId).find { it.id == expense.categoryId }?.remoteId ?: continue
             val subcategoryRemoteId = expense.subcategoryId?.let { subcategoryId -> repo.subcategories(expense.categoryId).find { it.id == subcategoryId }?.remoteId }
-            val memberRemoteId = repo.members(householdId).find { it.id == expense.paidByMemberId }?.remoteId ?: continue
+            val memberRemoteId = members.find { it.id == expense.paidByMemberId }?.remoteId ?: continue
             if (expense.pendingDelete) {
                 if (expense.remoteId != null) runCatching { api.deleteExpense(remoteHouseholdId, expense.remoteId) }
                 repo.hardDeleteHouseholdExpense(expense.id)
             } else {
+                val beneficiaryRows = repo.householdExpenseBeneficiaries(expense.id)
+                val beneficiaryAmounts = beneficiaryRows.mapNotNull { row ->
+                    val remoteId = row.memberId?.let { id -> members.find { it.id == id }?.remoteId }
+                        ?: row.dependentId?.let { id -> dependents.find { it.id == id }?.remoteId }
+                    remoteId?.let { it to row.amountMinorUnits }
+                }.toMap()
+                val beneficiarySplit = if (beneficiaryRows.isNotEmpty() && beneficiaryAmounts.size == beneficiaryRows.size) {
+                    SplitModeDto(type = "EXACT", exactAmountsMinorUnits = beneficiaryAmounts)
+                } else null
+
+                val contributionRows = repo.householdExpenseContributions(expense.id)
+                val contributionAmounts = contributionRows.mapNotNull { row ->
+                    members.find { it.id == row.memberId }?.remoteId?.let { it to row.amountMinorUnits }
+                }.toMap()
+                val contributionSplit = if (contributionRows.isNotEmpty() && contributionAmounts.size == contributionRows.size) {
+                    SplitModeDto(type = "EXACT", exactAmountsMinorUnits = contributionAmounts)
+                } else null
+
                 val request = RecordExpenseRequest(
                     categoryId = categoryRemoteId,
                     subcategoryId = subcategoryRemoteId,
@@ -229,6 +263,8 @@ object SyncEngine {
                     paidByMemberId = memberRemoteId,
                     occurredAt = expense.occurredAt,
                     note = expense.note,
+                    beneficiarySplit = beneficiarySplit,
+                    contributionSplit = contributionSplit,
                 )
                 val remoteId = if (expense.remoteId == null) {
                     api.recordExpense(remoteHouseholdId, request).expense.id
@@ -275,10 +311,23 @@ object SyncEngine {
             householdId,
             response.members.map { MemberEntity(id = localIdForMember(repo.members(householdId), it.id) ?: UUID.randomUUID().toString(), householdId = householdId, displayName = it.displayName, remoteId = it.id) },
         )
+        repo.replaceDependentsFromRemote(
+            householdId,
+            response.dependents.map {
+                HouseholdDependentEntity(
+                    id = localIdForDependent(repo.dependents(householdId), it.id) ?: UUID.randomUUID().toString(),
+                    householdId = householdId,
+                    name = it.name,
+                    category = it.category,
+                    remoteId = it.id,
+                )
+            },
+        )
         val today = java.time.LocalDate.now()
         val expenses = api.expenses(remoteId, today.year, today.monthValue)
         val categories = repo.categories(householdId)
         val members = repo.members(householdId)
+        val dependents = repo.dependents(householdId)
         val pendingLocalIds = repo.pendingHouseholdExpenses(householdId).map { it.id }.toSet()
         repo.replaceSyncedHouseholdExpenses(
             householdId,
@@ -301,6 +350,35 @@ object SyncEngine {
             },
             keepLocalIds = pendingLocalIds,
         )
+        // Beneficiary/contribution splits are always resynced wholesale per
+        // expense (delete-and-reinsert) rather than tracked with their own
+        // pendingSync — cheap since each expense only carries a handful.
+        val localExpenses = repo.householdExpenses(householdId)
+        for (remote in expenses) {
+            val localExpenseId = localExpenses.find { it.remoteId == remote.id }?.id ?: continue
+            if (localExpenseId in pendingLocalIds) continue
+            replaceHouseholdExpenseSplitsFromRemote(repo, localExpenseId, remote, members, dependents)
+        }
+    }
+
+    private suspend fun replaceHouseholdExpenseSplitsFromRemote(
+        repo: LocalRepository,
+        localExpenseId: String,
+        remote: HouseholdExpenseDto,
+        members: List<MemberEntity>,
+        dependents: List<HouseholdDependentEntity>,
+    ) {
+        val beneficiaries = remote.beneficiaries.mapNotNull { b ->
+            val memberId = b.memberId?.let { rid -> members.find { it.remoteId == rid }?.id }
+            val dependentId = b.dependentId?.let { rid -> dependents.find { it.remoteId == rid }?.id }
+            if (memberId == null && dependentId == null) return@mapNotNull null
+            Triple(memberId, dependentId, b.amount.minorUnits)
+        }
+        val contributions = remote.contributions.mapNotNull { c ->
+            val memberId = members.find { it.remoteId == c.memberId }?.id ?: return@mapNotNull null
+            memberId to c.amount.minorUnits
+        }
+        repo.replaceHouseholdExpenseSplitsFromRemote(localExpenseId, remote.amount.currency, beneficiaries, contributions)
     }
 
     private suspend fun syncActivity(repo: LocalRepository, api: ApiClient, activity: ActivityEntity) {
@@ -323,13 +401,38 @@ object SyncEngine {
     }
 
     private suspend fun pushActivityPending(repo: LocalRepository, api: ApiClient, activityId: String, remoteTripId: String) {
+        val participants = repo.participants(activityId)
         for (expense in repo.pendingActivityExpenses(activityId)) {
-            val participantRemoteId = repo.participants(activityId).find { it.id == expense.paidByParticipantId }?.remoteId ?: continue
+            val participantRemoteId = participants.find { it.id == expense.paidByParticipantId }?.remoteId ?: continue
             if (expense.pendingDelete) {
                 if (expense.remoteId != null) runCatching { api.deleteTripExpense(remoteTripId, expense.remoteId) }
                 repo.hardDeleteActivityExpense(expense.id)
             } else {
-                val request = AddTripExpenseRequest(expense.amountMinorUnits, expense.currency, participantRemoteId, expense.occurredAt, expense.note)
+                val beneficiaryRows = repo.activityExpenseBeneficiaries(expense.id)
+                val beneficiaryAmounts = beneficiaryRows.mapNotNull { row ->
+                    participants.find { it.id == row.participantId }?.remoteId?.let { it to row.amountMinorUnits }
+                }.toMap()
+                val beneficiarySplit = if (beneficiaryRows.isNotEmpty() && beneficiaryAmounts.size == beneficiaryRows.size) {
+                    SplitModeDto(type = "EXACT", exactAmountsMinorUnits = beneficiaryAmounts)
+                } else null
+
+                val contributionRows = repo.activityExpenseContributions(expense.id)
+                val contributionAmounts = contributionRows.mapNotNull { row ->
+                    participants.find { it.id == row.participantId }?.remoteId?.let { it to row.amountMinorUnits }
+                }.toMap()
+                val contributionSplit = if (contributionRows.isNotEmpty() && contributionAmounts.size == contributionRows.size) {
+                    SplitModeDto(type = "EXACT", exactAmountsMinorUnits = contributionAmounts)
+                } else null
+
+                val request = AddTripExpenseRequest(
+                    expense.amountMinorUnits,
+                    expense.currency,
+                    participantRemoteId,
+                    expense.occurredAt,
+                    expense.note,
+                    beneficiarySplit = beneficiarySplit,
+                    contributionSplit = contributionSplit,
+                )
                 val remoteId = if (expense.remoteId == null) {
                     api.addTripExpense(remoteTripId, request).id
                 } else {
@@ -370,11 +473,24 @@ object SyncEngine {
             },
             keepLocalIds = pendingLocalIds,
         )
+        val localExpenses = repo.activityExpenses(activityId)
+        for (remote in detail.expenses) {
+            val localExpenseId = localExpenses.find { it.remoteId == remote.id }?.id ?: continue
+            if (localExpenseId in pendingLocalIds) continue
+            val beneficiaries = remote.beneficiaries.mapNotNull { b ->
+                participants.find { it.remoteId == b.participantId }?.id?.let { it to b.amount.minorUnits }
+            }
+            val contributions = remote.contributions.mapNotNull { c ->
+                participants.find { it.remoteId == c.participantId }?.id?.let { it to c.amount.minorUnits }
+            }
+            repo.replaceActivityExpenseSplitsFromRemote(localExpenseId, remote.amount.currency, beneficiaries, contributions)
+        }
     }
 
     private fun localIdForCategory(existing: List<CategoryEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForSubcategory(existing: List<SubcategoryEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForMember(existing: List<MemberEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
+    private fun localIdForDependent(existing: List<HouseholdDependentEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForParticipant(existing: List<ParticipantEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForHouseholdExpense(existing: List<HouseholdExpenseEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id
     private fun localIdForActivityExpense(existing: List<ActivityExpenseEntity>, remoteId: String) = existing.find { it.remoteId == remoteId }?.id

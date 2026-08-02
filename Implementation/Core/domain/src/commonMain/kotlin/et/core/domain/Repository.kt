@@ -4,7 +4,10 @@ import et.core.model.Category
 import et.core.model.Device
 import et.core.model.ExpenseSplit
 import et.core.model.Household
+import et.core.model.HouseholdDependent
 import et.core.model.HouseholdExpense
+import et.core.model.HouseholdExpenseBeneficiary
+import et.core.model.HouseholdExpenseContribution
 import et.core.model.HouseholdSettlement
 import et.core.model.Member
 import et.core.model.MonthlyBudget
@@ -12,6 +15,7 @@ import et.core.model.Settlement
 import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
+import et.core.model.TripExpenseContribution
 import et.core.model.TripParticipant
 
 /**
@@ -40,13 +44,28 @@ interface Repository {
     suspend fun memberById(memberId: String): Member?
     suspend fun saveMember(member: Member)
 
+    suspend fun householdDependents(householdId: String): List<HouseholdDependent>
+    /** Unlike [householdDependents], includes archived ones — needed to look one up before re-saving it. */
+    suspend fun householdDependentById(dependentId: String): HouseholdDependent?
+    suspend fun saveHouseholdDependent(dependent: HouseholdDependent)
+
     suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget?
     suspend fun saveMonthlyBudget(budget: MonthlyBudget)
 
     suspend fun householdExpensesBetween(householdId: String, fromInclusive: Long, toExclusive: Long): List<HouseholdExpense>
     suspend fun householdExpenseById(expenseId: String): HouseholdExpense?
-    suspend fun saveHouseholdExpense(expense: HouseholdExpense)
-    suspend fun updateHouseholdExpense(expense: HouseholdExpense)
+    suspend fun householdExpenseBeneficiaries(householdExpenseId: String): List<HouseholdExpenseBeneficiary>
+    suspend fun householdExpenseContributions(householdExpenseId: String): List<HouseholdExpenseContribution>
+    suspend fun saveHouseholdExpenseWithSplits(
+        expense: HouseholdExpense,
+        beneficiaries: List<HouseholdExpenseBeneficiary>,
+        contributions: List<HouseholdExpenseContribution>,
+    )
+    suspend fun updateHouseholdExpenseWithSplits(
+        expense: HouseholdExpense,
+        beneficiaries: List<HouseholdExpenseBeneficiary>,
+        contributions: List<HouseholdExpenseContribution>,
+    )
     suspend fun deleteHouseholdExpense(expenseId: String)
 
     suspend fun trips(): List<Trip>
@@ -61,8 +80,9 @@ interface Repository {
     suspend fun tripExpenses(tripId: String): List<TripExpense>
     suspend fun tripExpenseById(expenseId: String): TripExpense?
     suspend fun expenseSplits(tripExpenseId: String): List<ExpenseSplit>
-    suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>)
-    suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>)
+    suspend fun tripExpenseContributions(tripExpenseId: String): List<TripExpenseContribution>
+    suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>)
+    suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>)
     suspend fun deleteTripExpenseWithSplits(expenseId: String)
 
     suspend fun settlements(tripId: String): List<Settlement>

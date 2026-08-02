@@ -1,11 +1,13 @@
 package et.windows.server
 
 import et.core.domain.AddCategory
+import et.core.domain.AddHouseholdDependent
 import et.core.domain.AddMember
 import et.core.domain.AddSubcategory
 import et.core.domain.AddTripExpenseWithSplit
 import et.core.domain.AddTripParticipant
 import et.core.domain.ArchiveCategory
+import et.core.domain.ArchiveHouseholdDependent
 import et.core.domain.ArchiveMember
 import et.core.domain.ArchiveSubcategory
 import et.core.domain.ArchiveTripParticipant
@@ -18,6 +20,7 @@ import et.core.domain.RecordHouseholdExpense
 import et.core.domain.RecordHouseholdSettlement
 import et.core.domain.Repository
 import et.core.domain.SetMonthlyBudget
+import et.core.domain.SettleUp
 import et.windows.db.PairedDeviceStore
 import java.util.UUID
 
@@ -31,7 +34,7 @@ class AppServices(
 
     val createHousehold = CreateHousehold(repository, idGenerator)
     val recordHouseholdExpense = RecordHouseholdExpense(repository, idGenerator)
-    val editHouseholdExpense = EditHouseholdExpense(repository)
+    val editHouseholdExpense = EditHouseholdExpense(repository, idGenerator)
     val setMonthlyBudget = SetMonthlyBudget(repository, idGenerator)
     val addCategory = AddCategory(repository, idGenerator)
     val archiveCategory = ArchiveCategory(repository)
@@ -39,6 +42,8 @@ class AppServices(
     val archiveSubcategory = ArchiveSubcategory(repository)
     val addMember = AddMember(repository, idGenerator)
     val archiveMember = ArchiveMember(repository)
+    val addHouseholdDependent = AddHouseholdDependent(repository, idGenerator)
+    val archiveHouseholdDependent = ArchiveHouseholdDependent(repository)
     val recordHouseholdSettlement = RecordHouseholdSettlement(repository, idGenerator)
 
     val createTrip = CreateTrip(repository, idGenerator)
@@ -46,4 +51,5 @@ class AppServices(
     val editTripExpenseWithSplit = EditTripExpenseWithSplit(repository, idGenerator)
     val addTripParticipant = AddTripParticipant(repository, idGenerator)
     val archiveTripParticipant = ArchiveTripParticipant(repository)
+    val settleUp = SettleUp(repository, idGenerator)
 }

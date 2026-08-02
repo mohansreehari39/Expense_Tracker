@@ -3,6 +3,7 @@ package et.windows.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
@@ -21,9 +22,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.CategoryDto
+import et.windows.server.HouseholdDependentDto
 import et.windows.server.HouseholdExpenseDto
 import et.windows.server.MemberDto
 import et.windows.server.RecordExpenseRequest
+import et.windows.server.SplitModeDto
 import et.windows.server.SubcategoryDto
 
 /** Also used to edit an existing expense, when [expenseToEdit] is non-null. */
@@ -32,6 +35,7 @@ import et.windows.server.SubcategoryDto
 fun AddExpenseDialog(
     categories: List<CategoryDto>,
     members: List<MemberDto>,
+    dependents: List<HouseholdDependentDto>,
     currency: String,
     expenseToEdit: HouseholdExpenseDto? = null,
     onDismiss: () -> Unit,
@@ -48,6 +52,8 @@ fun AddExpenseDialog(
     var selectedCategoryId by remember { mutableStateOf(expenseToEdit?.categoryId ?: categories.firstOrNull()?.id) }
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     var selectedMemberId by remember { mutableStateOf(expenseToEdit?.paidByMemberId ?: members.firstOrNull()?.id) }
+    var beneficiarySplit by remember { mutableStateOf<SplitModeDto?>(null) }
+    var contributionSplit by remember { mutableStateOf<SplitModeDto?>(null) }
     val availableSubcategories = localCategories.find { it.id == selectedCategoryId }?.subcategories ?: emptyList()
     val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && selectedMemberId != null
@@ -125,6 +131,25 @@ fun AddExpenseDialog(
                     label = { Text("Note (optional)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
+                SplitEditor(
+                    label = "Who's it for",
+                    candidates = members.map { SplitCandidate(it.id, it.displayName) } +
+                        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") },
+                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
+                    currency = currency,
+                    defaultSelectedIds = members.map { it.id }.toSet(),
+                    onSplitChanged = { beneficiarySplit = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                SplitEditor(
+                    label = "Who chipped in",
+                    candidates = members.map { SplitCandidate(it.id, it.displayName) },
+                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
+                    currency = currency,
+                    defaultSelectedIds = setOfNotNull(selectedMemberId),
+                    onSplitChanged = { contributionSplit = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
             }
         },
         confirmButton = {
@@ -140,6 +165,8 @@ fun AddExpenseDialog(
                             paidByMemberId = selectedMemberId!!,
                             occurredAt = occurredAt,
                             note = note,
+                            beneficiarySplit = beneficiarySplit,
+                            contributionSplit = contributionSplit,
                         ),
                     )
                 },

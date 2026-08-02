@@ -71,6 +71,54 @@ data class HouseholdExpense(
     val createdAt: Long,
 )
 
+enum class DependentCategory { PET, KID, PARENT }
+
+/**
+ * A household beneficiary that isn't a [Member] — a pet, kid, or parent
+ * money can be spent *on* but who never chips in ("who all chipped in"
+ * always draws from [Member]s only). User-named per household, same
+ * create/archive lifecycle as [Member]/[Category].
+ */
+data class HouseholdDependent(
+    val id: String,
+    val householdId: String,
+    val name: String,
+    val category: DependentCategory,
+    val isArchived: Boolean = false,
+)
+
+/**
+ * "Who all is included in the expense" for a household expense — exactly
+ * one of [memberId]/[dependentId] is set. Whatever split mode the UI used
+ * (equal/exact/percentage) is resolved to a concrete [amount] before this
+ * row is ever created (see [et.core.domain.SplitCalculator]); the sum of
+ * every beneficiary row for one expense always equals that expense's
+ * total. Distinct from [HouseholdExpenseContribution] — this is who the
+ * money was *for*, not who *paid*.
+ */
+data class HouseholdExpenseBeneficiary(
+    val id: String,
+    val householdExpenseId: String,
+    val memberId: String? = null,
+    val dependentId: String? = null,
+    val amount: Money,
+)
+
+/**
+ * "Who all chipped in" for a household expense — how much each [Member]
+ * actually paid toward the total. Defaults to 100% on
+ * [HouseholdExpense.paidByMemberId] but can be split across multiple
+ * members. Dependents never contribute, so this only ever references
+ * [Member]s. The sum of every contribution row for one expense always
+ * equals that expense's total.
+ */
+data class HouseholdExpenseContribution(
+    val id: String,
+    val householdExpenseId: String,
+    val memberId: String,
+    val amount: Money,
+)
+
 data class Trip(
     val id: String,
     val name: String,
@@ -113,6 +161,20 @@ data class ExpenseSplit(
     val tripExpenseId: String,
     val participantId: String,
     val shareAmount: Money,
+)
+
+/**
+ * "Who all chipped in" for a trip expense — the [ExpenseSplit] equivalent
+ * for the payer side rather than the beneficiary side. Defaults to 100%
+ * on [TripExpense.paidByParticipantId] but can be split across multiple
+ * participants. The sum of every contribution row for one expense always
+ * equals that expense's total.
+ */
+data class TripExpenseContribution(
+    val id: String,
+    val tripExpenseId: String,
+    val participantId: String,
+    val amount: Money,
 )
 
 data class Settlement(

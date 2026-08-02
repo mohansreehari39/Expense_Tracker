@@ -1,16 +1,22 @@
 package et.windows.server
 
 import et.core.domain.BudgetEvaluation
+import et.core.domain.SplitMode
 import et.core.domain.SuggestedTransfer
 import et.core.model.Category
+import et.core.model.DependentCategory
 import et.core.model.Household
+import et.core.model.HouseholdDependent
 import et.core.model.HouseholdExpense
+import et.core.model.HouseholdExpenseBeneficiary
+import et.core.model.HouseholdExpenseContribution
 import et.core.model.Member
 import et.core.model.Money
 import et.core.model.MonthlyBudget
 import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
+import et.core.model.TripExpenseContribution
 import et.core.model.TripParticipant
 import kotlinx.serialization.Serializable
 
@@ -30,6 +36,30 @@ data class BudgetEvaluationDto(
 )
 
 fun BudgetEvaluation.toDto() = BudgetEvaluationDto(status.name, allocated.toDto(), spent.toDto(), remainingOrOver.toDto())
+
+/**
+ * The wire form of [SplitMode] — carries whichever one of [exactAmountsMinorUnits]/
+ * [percentages] matches [type], the other left null. UI-only convenience:
+ * percentages are always resolved to concrete [Money] server-side (see
+ * [SplitCalculator]) before anything is persisted — the DB never stores a
+ * percentage. Null at the call site (not this DTO itself) means "use the
+ * default" — equal-split for beneficiaries, 100%-to-payer for
+ * contributions — see [RecordHouseholdExpense]/[AddTripExpenseWithSplit].
+ */
+@Serializable
+data class SplitModeDto(
+    val type: String,
+    val participantIds: List<String>? = null,
+    val exactAmountsMinorUnits: Map<String, Long>? = null,
+    val percentages: Map<String, Double>? = null,
+)
+
+fun SplitModeDto.toDomain(currency: String): SplitMode = when (type) {
+    "EQUAL" -> SplitMode.Equal(requireNotNull(participantIds) { "EQUAL split requires participantIds" })
+    "EXACT" -> SplitMode.Exact(requireNotNull(exactAmountsMinorUnits) { "EXACT split requires exactAmountsMinorUnits" }.mapValues { Money(it.value, currency) })
+    "PERCENTAGE" -> SplitMode.Percentage(requireNotNull(percentages) { "PERCENTAGE split requires percentages" })
+    else -> throw IllegalArgumentException("unknown split mode type: $type")
+}
 
 // -- Households -----------------------------------------------------------
 
@@ -60,11 +90,18 @@ data class MemberDto(val id: String, val displayName: String)
 
 fun Member.toDto() = MemberDto(id, displayName)
 
+/** [category] is [DependentCategory]'s name (`"PET"`/`"KID"`/`"PARENT"`). */
+@Serializable
+data class HouseholdDependentDto(val id: String, val name: String, val category: String)
+
+fun HouseholdDependent.toDto() = HouseholdDependentDto(id, name, category.name)
+
 @Serializable
 data class HouseholdResponse(
     val household: HouseholdDto,
     val categories: List<CategoryDto>,
     val members: List<MemberDto>,
+    val dependents: List<HouseholdDependentDto> = emptyList(),
     /** Only populated when [HouseholdDto.settlementEnabled] — equal-split net balance per member, mirroring [TripDetailResponse.balances]. */
     val balances: Map<String, MoneyDto> = emptyMap(),
     val suggestedSettlements: List<SuggestedTransferDto> = emptyList(),
@@ -79,6 +116,10 @@ data class AddSubcategoryRequest(val name: String)
 @Serializable
 data class AddMemberRequest(val displayName: String)
 
+/** [category] is [DependentCategory]'s name (`"PET"`/`"KID"`/`"PARENT"`). */
+@Serializable
+data class AddHouseholdDependentRequest(val name: String, val category: String)
+
 @Serializable
 data class CreateHouseholdRequest(val name: String)
 
@@ -90,6 +131,17 @@ data class MonthlyBudgetDto(val id: String, val year: Int, val month: Int, val t
 
 fun MonthlyBudget.toDto() = MonthlyBudgetDto(id, year, month, totalAmount.toDto())
 
+/** Exactly one of [memberId]/[dependentId] is set — see [HouseholdExpenseBeneficiary]. */
+@Serializable
+data class HouseholdExpenseBeneficiaryDto(val id: String, val memberId: String? = null, val dependentId: String? = null, val amount: MoneyDto)
+
+fun HouseholdExpenseBeneficiary.toDto() = HouseholdExpenseBeneficiaryDto(id, memberId, dependentId, amount.toDto())
+
+@Serializable
+data class HouseholdExpenseContributionDto(val id: String, val memberId: String, val amount: MoneyDto)
+
+fun HouseholdExpenseContribution.toDto() = HouseholdExpenseContributionDto(id, memberId, amount.toDto())
+
 @Serializable
 data class HouseholdExpenseDto(
     val id: String,
@@ -99,9 +151,14 @@ data class HouseholdExpenseDto(
     val paidByMemberId: String,
     val occurredAt: Long,
     val note: String,
+    val beneficiaries: List<HouseholdExpenseBeneficiaryDto> = emptyList(),
+    val contributions: List<HouseholdExpenseContributionDto> = emptyList(),
 )
 
-fun HouseholdExpense.toDto() = HouseholdExpenseDto(id, categoryId, subcategoryId, amount.toDto(), paidByMemberId, occurredAt, note)
+fun HouseholdExpense.toDto(
+    beneficiaries: List<HouseholdExpenseBeneficiaryDto> = emptyList(),
+    contributions: List<HouseholdExpenseContributionDto> = emptyList(),
+) = HouseholdExpenseDto(id, categoryId, subcategoryId, amount.toDto(), paidByMemberId, occurredAt, note, beneficiaries, contributions)
 
 @Serializable
 data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
@@ -130,6 +187,10 @@ data class RecordExpenseRequest(
     val paidByMemberId: String,
     val occurredAt: Long,
     val note: String = "",
+    /** Null means equal-split across every active member — see [RecordHouseholdExpense]. */
+    val beneficiarySplit: SplitModeDto? = null,
+    /** Null means 100% on [paidByMemberId] — see [RecordHouseholdExpense]. */
+    val contributionSplit: SplitModeDto? = null,
 )
 
 @Serializable
@@ -177,15 +238,30 @@ fun TripParticipant.toDto() = TripParticipantDto(id, displayName)
 data class AddTripParticipantRequest(val displayName: String)
 
 @Serializable
+data class ExpenseSplitDto(val id: String, val participantId: String, val amount: MoneyDto)
+
+fun et.core.model.ExpenseSplit.toDto() = ExpenseSplitDto(id, participantId, shareAmount.toDto())
+
+@Serializable
+data class TripExpenseContributionDto(val id: String, val participantId: String, val amount: MoneyDto)
+
+fun TripExpenseContribution.toDto() = TripExpenseContributionDto(id, participantId, amount.toDto())
+
+@Serializable
 data class TripExpenseDto(
     val id: String,
     val amount: MoneyDto,
     val paidByParticipantId: String,
     val occurredAt: Long,
     val note: String,
+    val beneficiaries: List<ExpenseSplitDto> = emptyList(),
+    val contributions: List<TripExpenseContributionDto> = emptyList(),
 )
 
-fun TripExpense.toDto() = TripExpenseDto(id, amount.toDto(), paidByParticipantId, occurredAt, note)
+fun TripExpense.toDto(
+    beneficiaries: List<ExpenseSplitDto> = emptyList(),
+    contributions: List<TripExpenseContributionDto> = emptyList(),
+) = TripExpenseDto(id, amount.toDto(), paidByParticipantId, occurredAt, note, beneficiaries, contributions)
 
 @Serializable
 data class SuggestedTransferDto(val fromParticipantId: String, val toParticipantId: String, val amount: MoneyDto)
@@ -200,6 +276,17 @@ data class TripDetailResponse(
     val balances: Map<String, MoneyDto>,
     val suggestedSettlements: List<SuggestedTransferDto>,
 )
+
+@Serializable
+data class RecordTripSettlementRequest(
+    val fromParticipantId: String,
+    val toParticipantId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+)
+
+@Serializable
+data class TripSettlementsResponse(val balances: Map<String, MoneyDto>, val suggestedSettlements: List<SuggestedTransferDto>)
 
 @Serializable
 data class CreateTripRequest(
@@ -221,6 +308,10 @@ data class AddTripExpenseRequest(
     val paidByParticipantId: String,
     val occurredAt: Long,
     val note: String = "",
+    /** Null means equal-split across every participant — the v0 default. */
+    val beneficiarySplit: SplitModeDto? = null,
+    /** Null means 100% on [paidByParticipantId]. */
+    val contributionSplit: SplitModeDto? = null,
 )
 
 /** Never carries [et.windows.db.PairedDevice.pairingKey] — this is what `GET /devices` returns for display, the key itself is only ever returned once, from the pair endpoint. */

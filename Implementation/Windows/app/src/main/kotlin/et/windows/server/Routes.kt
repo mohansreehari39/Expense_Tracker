@@ -185,12 +185,14 @@ private fun Route.households(services: AppServices) {
                     ?: return@get call.respond(HttpStatusCode.NotFound)
                 val categories = services.repository.categories(householdId)
                 val members = services.repository.members(householdId)
+                val dependents = services.repository.householdDependents(householdId)
                 val (balances, suggestions) = householdBalances(services, household)
                 call.respond(
                     HouseholdResponse(
                         household.toDto(),
                         categories.map { c -> c.toDto(services.repository.subcategories(c.id).map { it.toDto() }) },
                         members.map { it.toDto() },
+                        dependents.map { it.toDto() },
                         balances,
                         suggestions,
                     ),
@@ -266,6 +268,31 @@ private fun Route.households(services: AppServices) {
                 delete("/{memberId}") {
                     val memberId = call.parameters["memberId"]!!
                     val archived = services.archiveMember(memberId)
+                        ?: return@delete call.respond(HttpStatusCode.NotFound)
+                    call.respond(archived.toDto())
+                }
+            }
+
+            route("/dependents") {
+                post {
+                    val householdId = call.parameters["householdId"]!!
+                    val request = call.receive<AddHouseholdDependentRequest>()
+                    val category = try {
+                        et.core.model.DependentCategory.valueOf(request.category)
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to "invalid dependent category: ${request.category}"))
+                    }
+                    val dependent = try {
+                        services.addHouseholdDependent(householdId, request.name, category)
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid dependent name")))
+                    }
+                    call.respond(HttpStatusCode.Created, dependent.toDto())
+                }
+
+                delete("/{dependentId}") {
+                    val dependentId = call.parameters["dependentId"]!!
+                    val archived = services.archiveHouseholdDependent(dependentId)
                         ?: return@delete call.respond(HttpStatusCode.NotFound)
                     call.respond(archived.toDto())
                 }
@@ -358,7 +385,14 @@ private fun Route.households(services: AppServices) {
                         range.start.startOfDayMillis(),
                         range.endInclusive.exclusiveEndMillis(),
                     )
-                    call.respond(expenses.map { it.toDto() })
+                    call.respond(
+                        expenses.map { expense ->
+                            expense.toDto(
+                                services.repository.householdExpenseBeneficiaries(expense.id).map { it.toDto() },
+                                services.repository.householdExpenseContributions(expense.id).map { it.toDto() },
+                            )
+                        },
+                    )
                 }
 
                 post {
@@ -374,9 +408,15 @@ private fun Route.households(services: AppServices) {
                         createdByDeviceId = services.deviceId,
                         createdAt = Clock.System.now().toEpochMilliseconds(),
                         note = request.note,
+                        beneficiarySplitMode = request.beneficiarySplit?.toDomain(request.currency),
+                        contributionSplitMode = request.contributionSplit?.toDomain(request.currency),
                     )
                     val weekEvaluation = weekEvaluationFor(services, householdId, expense.occurredAt, expense.amount.currency, expense.amount)
-                    call.respond(HttpStatusCode.Created, RecordExpenseResponse(expense.toDto(), weekEvaluation.toDto()))
+                    val dto = expense.toDto(
+                        services.repository.householdExpenseBeneficiaries(expense.id).map { it.toDto() },
+                        services.repository.householdExpenseContributions(expense.id).map { it.toDto() },
+                    )
+                    call.respond(HttpStatusCode.Created, RecordExpenseResponse(dto, weekEvaluation.toDto()))
                 }
 
                 route("/{expenseId}") {
@@ -392,9 +432,15 @@ private fun Route.households(services: AppServices) {
                             paidByMemberId = request.paidByMemberId,
                             occurredAt = request.occurredAt,
                             note = request.note,
+                            beneficiarySplitMode = request.beneficiarySplit?.toDomain(request.currency),
+                            contributionSplitMode = request.contributionSplit?.toDomain(request.currency),
                         ) ?: return@put call.respond(HttpStatusCode.NotFound)
                         val weekEvaluation = weekEvaluationFor(services, householdId, expense.occurredAt, expense.amount.currency, expense.amount)
-                        call.respond(RecordExpenseResponse(expense.toDto(), weekEvaluation.toDto()))
+                        val dto = expense.toDto(
+                            services.repository.householdExpenseBeneficiaries(expense.id).map { it.toDto() },
+                            services.repository.householdExpenseContributions(expense.id).map { it.toDto() },
+                        )
+                        call.respond(RecordExpenseResponse(dto, weekEvaluation.toDto()))
                     }
 
                     delete {
@@ -485,7 +531,12 @@ private fun Route.trips(services: AppServices) {
                     TripDetailResponse(
                         trip = trip.toDto(tripEvaluation(services, tripId, trip.budgetAmount).toDto()),
                         participants = participants.map { it.toDto() },
-                        expenses = expenses.map { it.toDto() },
+                        expenses = expenses.map { expense ->
+                            expense.toDto(
+                                services.repository.expenseSplits(expense.id).map { it.toDto() },
+                                services.repository.tripExpenseContributions(expense.id).map { it.toDto() },
+                            )
+                        },
                         balances = balances.mapValues { it.value.toDto() },
                         suggestedSettlements = suggestions.map { it.toDto() },
                     ),
@@ -529,17 +580,23 @@ private fun Route.trips(services: AppServices) {
                     val tripId = call.parameters["tripId"]!!
                     val request = call.receive<AddTripExpenseRequest>()
                     val participants = services.repository.tripParticipants(tripId)
+                    // Default: equal-split beneficiaries across every participant; the UI can
+                    // instead send an exact/percentage beneficiarySplit to override.
+                    val splitMode = request.beneficiarySplit?.toDomain(request.currency) ?: SplitMode.Equal(participants.map { it.id })
                     val expense = services.addTripExpenseWithSplit(
                         tripId = tripId,
                         amount = Money(request.amountMinorUnits, request.currency),
                         paidByParticipantId = request.paidByParticipantId,
                         occurredAt = request.occurredAt,
-                        // v0: always split equally among every participant; exact/percentage/weighted
-                        // splits are supported by core-domain already but have no UI yet.
-                        splitMode = SplitMode.Equal(participants.map { it.id }),
+                        splitMode = splitMode,
                         note = request.note,
+                        contributionMode = request.contributionSplit?.toDomain(request.currency),
                     )
-                    call.respond(HttpStatusCode.Created, expense.toDto())
+                    val dto = expense.toDto(
+                        services.repository.expenseSplits(expense.id).map { it.toDto() },
+                        services.repository.tripExpenseContributions(expense.id).map { it.toDto() },
+                    )
+                    call.respond(HttpStatusCode.Created, dto)
                 }
 
                 route("/{expenseId}") {
@@ -548,15 +605,21 @@ private fun Route.trips(services: AppServices) {
                         val expenseId = call.parameters["expenseId"]!!
                         val request = call.receive<AddTripExpenseRequest>()
                         val participants = services.repository.tripParticipants(tripId)
+                        val splitMode = request.beneficiarySplit?.toDomain(request.currency) ?: SplitMode.Equal(participants.map { it.id })
                         val expense = services.editTripExpenseWithSplit(
                             expenseId = expenseId,
                             amount = Money(request.amountMinorUnits, request.currency),
                             paidByParticipantId = request.paidByParticipantId,
                             occurredAt = request.occurredAt,
-                            splitMode = SplitMode.Equal(participants.map { it.id }),
+                            splitMode = splitMode,
                             note = request.note,
+                            contributionMode = request.contributionSplit?.toDomain(request.currency),
                         ) ?: return@put call.respond(HttpStatusCode.NotFound)
-                        call.respond(expense.toDto())
+                        val dto = expense.toDto(
+                            services.repository.expenseSplits(expense.id).map { it.toDto() },
+                            services.repository.tripExpenseContributions(expense.id).map { it.toDto() },
+                        )
+                        call.respond(dto)
                     }
 
                     delete {
@@ -567,6 +630,37 @@ private fun Route.trips(services: AppServices) {
                         services.repository.deleteTripExpenseWithSplits(expenseId)
                         call.respond(HttpStatusCode.NoContent)
                     }
+                }
+            }
+
+            route("/settlements") {
+                post {
+                    val tripId = call.parameters["tripId"]!!
+                    val trip = services.repository.trip(tripId) ?: return@post call.respond(HttpStatusCode.NotFound)
+                    val request = call.receive<RecordTripSettlementRequest>()
+                    services.settleUp(
+                        tripId = tripId,
+                        fromParticipantId = request.fromParticipantId,
+                        toParticipantId = request.toParticipantId,
+                        amount = Money(request.amountMinorUnits, request.currency),
+                        settledAt = Clock.System.now().toEpochMilliseconds(),
+                    )
+                    val participants = services.repository.tripParticipants(tripId)
+                    val expenses = services.repository.tripExpenses(tripId)
+                    val splits = expenses.flatMap { services.repository.expenseSplits(it.id) }
+                    val settlements = services.repository.settlements(tripId)
+                    val balances = TripBalances.netBalances(
+                        participantIds = participants.map { it.id },
+                        expenses = expenses,
+                        splits = splits,
+                        settlements = settlements,
+                        currency = trip.budgetAmount.currency,
+                    )
+                    val suggestions = DebtSimplification.simplify(balances)
+                    call.respond(
+                        HttpStatusCode.Created,
+                        TripSettlementsResponse(balances.mapValues { it.value.toDto() }, suggestions.map { it.toDto() }),
+                    )
                 }
             }
         }

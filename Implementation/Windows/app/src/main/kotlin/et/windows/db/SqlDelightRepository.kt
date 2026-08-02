@@ -2,13 +2,17 @@ package et.windows.db
 
 import et.core.domain.Repository
 import et.core.model.Category
+import et.core.model.DependentCategory
 import et.core.model.Device
 import et.core.model.EntityType
 import et.core.model.ExpenseSplit
 import et.core.model.Hlc
 import et.core.model.HlcClock
 import et.core.model.Household
+import et.core.model.HouseholdDependent
 import et.core.model.HouseholdExpense
+import et.core.model.HouseholdExpenseBeneficiary
+import et.core.model.HouseholdExpenseContribution
 import et.core.model.HouseholdSettlement
 import et.core.model.Member
 import et.core.model.Money
@@ -19,6 +23,7 @@ import et.core.model.Settlement
 import et.core.model.Subcategory
 import et.core.model.Trip
 import et.core.model.TripExpense
+import et.core.model.TripExpenseContribution
 import et.core.model.TripParticipant
 import et.core.sync.OperationStore
 import et.windows.db.sql.Trip as SqlTrip
@@ -125,6 +130,33 @@ class SqlDelightRepository(
         logOp(EntityType.MEMBER, member.id, mapOf("displayName" to JsonPrimitive(member.displayName)))
     }
 
+    override suspend fun householdDependents(householdId: String): List<HouseholdDependent> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholdDependents(householdId).executeAsList().map(::toHouseholdDependent)
+    }
+
+    override suspend fun householdDependentById(dependentId: String): HouseholdDependent? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectHouseholdDependentById(dependentId).executeAsOneOrNull()?.let(::toHouseholdDependent)
+    }
+
+    private fun toHouseholdDependent(row: et.windows.db.sql.HouseholdDependent) = HouseholdDependent(
+        id = row.id,
+        householdId = row.householdId,
+        name = row.name,
+        category = DependentCategory.valueOf(row.category),
+        isArchived = row.isArchived == 1L,
+    )
+
+    override suspend fun saveHouseholdDependent(dependent: HouseholdDependent): Unit = withContext(Dispatchers.IO) {
+        db.schemaQueries.upsertHouseholdDependent(
+            dependent.id,
+            dependent.householdId,
+            dependent.name,
+            dependent.category.name,
+            if (dependent.isArchived) 1L else 0L,
+        )
+        logOp(EntityType.HOUSEHOLD_DEPENDENT, dependent.id, mapOf("name" to JsonPrimitive(dependent.name)))
+    }
+
     override suspend fun monthlyBudget(householdId: String, year: Int, month: Int): MonthlyBudget? =
         withContext(Dispatchers.IO) {
             db.schemaQueries.selectMonthlyBudget(householdId, year.toLong(), month.toLong())
@@ -185,20 +217,42 @@ class SqlDelightRepository(
         createdAt = row.createdAt,
     )
 
-    override suspend fun saveHouseholdExpense(expense: HouseholdExpense): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.insertHouseholdExpense(
-            id = expense.id,
-            householdId = expense.householdId,
-            categoryId = expense.categoryId,
-            subcategoryId = expense.subcategoryId,
-            amountMinorUnits = expense.amount.minorUnits,
-            currency = expense.amount.currency,
-            paidByMemberId = expense.paidByMemberId,
-            occurredAt = expense.occurredAt,
-            note = expense.note,
-            createdByDeviceId = expense.createdByDeviceId,
-            createdAt = expense.createdAt,
-        )
+    override suspend fun householdExpenseBeneficiaries(householdExpenseId: String): List<HouseholdExpenseBeneficiary> =
+        withContext(Dispatchers.IO) {
+            db.schemaQueries.selectHouseholdExpenseBeneficiaries(householdExpenseId).executeAsList().map {
+                HouseholdExpenseBeneficiary(it.id, it.householdExpenseId, it.memberId, it.dependentId, Money(it.amountMinorUnits, it.currency))
+            }
+        }
+
+    override suspend fun householdExpenseContributions(householdExpenseId: String): List<HouseholdExpenseContribution> =
+        withContext(Dispatchers.IO) {
+            db.schemaQueries.selectHouseholdExpenseContributions(householdExpenseId).executeAsList().map {
+                HouseholdExpenseContribution(it.id, it.householdExpenseId, it.memberId, Money(it.amountMinorUnits, it.currency))
+            }
+        }
+
+    override suspend fun saveHouseholdExpenseWithSplits(
+        expense: HouseholdExpense,
+        beneficiaries: List<HouseholdExpenseBeneficiary>,
+        contributions: List<HouseholdExpenseContribution>,
+    ): Unit = withContext(Dispatchers.IO) {
+        db.transaction {
+            db.schemaQueries.insertHouseholdExpense(
+                id = expense.id,
+                householdId = expense.householdId,
+                categoryId = expense.categoryId,
+                subcategoryId = expense.subcategoryId,
+                amountMinorUnits = expense.amount.minorUnits,
+                currency = expense.amount.currency,
+                paidByMemberId = expense.paidByMemberId,
+                occurredAt = expense.occurredAt,
+                note = expense.note,
+                createdByDeviceId = expense.createdByDeviceId,
+                createdAt = expense.createdAt,
+            )
+            insertHouseholdExpenseBeneficiaries(expense.id, beneficiaries)
+            insertHouseholdExpenseContributions(expense.id, contributions)
+        }
         logOp(
             EntityType.HOUSEHOLD_EXPENSE,
             expense.id,
@@ -211,17 +265,27 @@ class SqlDelightRepository(
         )
     }
 
-    override suspend fun updateHouseholdExpense(expense: HouseholdExpense): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.updateHouseholdExpense(
-            categoryId = expense.categoryId,
-            subcategoryId = expense.subcategoryId,
-            amountMinorUnits = expense.amount.minorUnits,
-            currency = expense.amount.currency,
-            paidByMemberId = expense.paidByMemberId,
-            occurredAt = expense.occurredAt,
-            note = expense.note,
-            id = expense.id,
-        )
+    override suspend fun updateHouseholdExpenseWithSplits(
+        expense: HouseholdExpense,
+        beneficiaries: List<HouseholdExpenseBeneficiary>,
+        contributions: List<HouseholdExpenseContribution>,
+    ): Unit = withContext(Dispatchers.IO) {
+        db.transaction {
+            db.schemaQueries.updateHouseholdExpense(
+                categoryId = expense.categoryId,
+                subcategoryId = expense.subcategoryId,
+                amountMinorUnits = expense.amount.minorUnits,
+                currency = expense.amount.currency,
+                paidByMemberId = expense.paidByMemberId,
+                occurredAt = expense.occurredAt,
+                note = expense.note,
+                id = expense.id,
+            )
+            db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expense.id)
+            db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expense.id)
+            insertHouseholdExpenseBeneficiaries(expense.id, beneficiaries)
+            insertHouseholdExpenseContributions(expense.id, contributions)
+        }
         logOp(
             EntityType.HOUSEHOLD_EXPENSE,
             expense.id,
@@ -235,8 +299,37 @@ class SqlDelightRepository(
         )
     }
 
+    private fun insertHouseholdExpenseBeneficiaries(expenseId: String, beneficiaries: List<HouseholdExpenseBeneficiary>) {
+        for (beneficiary in beneficiaries) {
+            db.schemaQueries.insertHouseholdExpenseBeneficiary(
+                beneficiary.id,
+                expenseId,
+                beneficiary.memberId,
+                beneficiary.dependentId,
+                beneficiary.amount.minorUnits,
+                beneficiary.amount.currency,
+            )
+        }
+    }
+
+    private fun insertHouseholdExpenseContributions(expenseId: String, contributions: List<HouseholdExpenseContribution>) {
+        for (contribution in contributions) {
+            db.schemaQueries.insertHouseholdExpenseContribution(
+                contribution.id,
+                expenseId,
+                contribution.memberId,
+                contribution.amount.minorUnits,
+                contribution.amount.currency,
+            )
+        }
+    }
+
     override suspend fun deleteHouseholdExpense(expenseId: String): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.deleteHouseholdExpense(expenseId)
+        db.transaction {
+            db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expenseId)
+            db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expenseId)
+            db.schemaQueries.deleteHouseholdExpense(expenseId)
+        }
         logOp(EntityType.HOUSEHOLD_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)
     }
 
@@ -309,7 +402,13 @@ class SqlDelightRepository(
         }
     }
 
-    override suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>): Unit =
+    override suspend fun tripExpenseContributions(tripExpenseId: String): List<TripExpenseContribution> = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectTripExpenseContributions(tripExpenseId).executeAsList().map {
+            TripExpenseContribution(it.id, it.tripExpenseId, it.participantId, Money(it.amountMinorUnits, it.currency))
+        }
+    }
+
+    override suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>): Unit =
         withContext(Dispatchers.IO) {
             db.transaction {
                 db.schemaQueries.insertTripExpense(
@@ -323,15 +422,8 @@ class SqlDelightRepository(
                     occurredAt = expense.occurredAt,
                     note = expense.note,
                 )
-                for (split in splits) {
-                    db.schemaQueries.insertExpenseSplit(
-                        split.id,
-                        split.tripExpenseId,
-                        split.participantId,
-                        split.shareAmount.minorUnits,
-                        split.shareAmount.currency,
-                    )
-                }
+                insertExpenseSplits(expense.id, splits)
+                insertTripExpenseContributions(expense.id, contributions)
             }
             logOp(
                 EntityType.TRIP_EXPENSE,
@@ -340,7 +432,7 @@ class SqlDelightRepository(
             )
         }
 
-    override suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>): Unit =
+    override suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>): Unit =
         withContext(Dispatchers.IO) {
             db.transaction {
                 db.schemaQueries.updateTripExpense(
@@ -354,15 +446,9 @@ class SqlDelightRepository(
                     id = expense.id,
                 )
                 db.schemaQueries.deleteExpenseSplitsForExpense(expense.id)
-                for (split in splits) {
-                    db.schemaQueries.insertExpenseSplit(
-                        split.id,
-                        split.tripExpenseId,
-                        split.participantId,
-                        split.shareAmount.minorUnits,
-                        split.shareAmount.currency,
-                    )
-                }
+                db.schemaQueries.deleteTripExpenseContributionsForExpense(expense.id)
+                insertExpenseSplits(expense.id, splits)
+                insertTripExpenseContributions(expense.id, contributions)
             }
             logOp(
                 EntityType.TRIP_EXPENSE,
@@ -372,9 +458,34 @@ class SqlDelightRepository(
             )
         }
 
+    private fun insertExpenseSplits(expenseId: String, splits: List<ExpenseSplit>) {
+        for (split in splits) {
+            db.schemaQueries.insertExpenseSplit(
+                split.id,
+                expenseId,
+                split.participantId,
+                split.shareAmount.minorUnits,
+                split.shareAmount.currency,
+            )
+        }
+    }
+
+    private fun insertTripExpenseContributions(expenseId: String, contributions: List<TripExpenseContribution>) {
+        for (contribution in contributions) {
+            db.schemaQueries.insertTripExpenseContribution(
+                contribution.id,
+                expenseId,
+                contribution.participantId,
+                contribution.amount.minorUnits,
+                contribution.amount.currency,
+            )
+        }
+    }
+
     override suspend fun deleteTripExpenseWithSplits(expenseId: String): Unit = withContext(Dispatchers.IO) {
         db.transaction {
             db.schemaQueries.deleteExpenseSplitsForExpense(expenseId)
+            db.schemaQueries.deleteTripExpenseContributionsForExpense(expenseId)
             db.schemaQueries.deleteTripExpense(expenseId)
         }
         logOp(EntityType.TRIP_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)

@@ -3,13 +3,14 @@ package et.core.domain
 import et.core.model.ExpenseSplit
 import et.core.model.Money
 import et.core.model.TripExpense
+import et.core.model.TripExpenseContribution
 
-/** Corrects a mistaken amount, date, payer, or note on an already-recorded trip expense, recomputing its splits. */
+/** Corrects a mistaken amount, date, payer, or note on an already-recorded trip expense, recomputing its beneficiary and contribution splits. */
 class EditTripExpenseWithSplit(
     private val repository: Repository,
     private val idGenerator: IdGenerator,
 ) {
-    /** @throws IllegalArgumentException if [splitMode]'s inputs don't validate against [amount] (see [SplitCalculator]). */
+    /** @throws IllegalArgumentException if either split mode's inputs don't validate against [amount] (see [SplitCalculator]). */
     suspend operator fun invoke(
         expenseId: String,
         amount: Money,
@@ -19,6 +20,7 @@ class EditTripExpenseWithSplit(
         categoryId: String? = null,
         subcategoryId: String? = null,
         note: String = "",
+        contributionMode: SplitMode? = null,
     ): TripExpense? {
         val existing = repository.tripExpenseById(expenseId) ?: return null
         val shares = SplitCalculator.computeSplits(amount, splitMode)
@@ -38,7 +40,16 @@ class EditTripExpenseWithSplit(
                 shareAmount = shareAmount,
             )
         }
-        repository.updateTripExpenseWithSplits(updated, splits)
+        val contributionShares = SplitCalculator.computeSplits(amount, contributionMode ?: SplitMode.Exact(mapOf(paidByParticipantId to amount)))
+        val contributions = contributionShares.map { (participantId, shareAmount) ->
+            TripExpenseContribution(
+                id = idGenerator.newId(),
+                tripExpenseId = expenseId,
+                participantId = participantId,
+                amount = shareAmount,
+            )
+        }
+        repository.updateTripExpenseWithSplits(updated, splits, contributions)
         return updated
     }
 }

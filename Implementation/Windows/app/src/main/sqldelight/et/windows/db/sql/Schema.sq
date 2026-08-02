@@ -97,6 +97,23 @@ SELECT * FROM member WHERE householdId = ? AND isArchived = 0;
 selectMemberById:
 SELECT * FROM member WHERE id = ?;
 
+CREATE TABLE householdDependent (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    isArchived INTEGER NOT NULL DEFAULT 0
+);
+
+upsertHouseholdDependent:
+INSERT OR REPLACE INTO householdDependent (id, householdId, name, category, isArchived) VALUES (?, ?, ?, ?, ?);
+
+selectHouseholdDependents:
+SELECT * FROM householdDependent WHERE householdId = ? AND isArchived = 0;
+
+selectHouseholdDependentById:
+SELECT * FROM householdDependent WHERE id = ?;
+
 CREATE TABLE monthlyBudget (
     id TEXT NOT NULL PRIMARY KEY,
     householdId TEXT NOT NULL,
@@ -146,6 +163,43 @@ UPDATE householdExpense SET categoryId = ?, subcategoryId = ?, amountMinorUnits 
 
 deleteHouseholdExpense:
 DELETE FROM householdExpense WHERE id = ?;
+
+CREATE TABLE householdExpenseBeneficiary (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdExpenseId TEXT NOT NULL,
+    memberId TEXT,
+    dependentId TEXT,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL
+);
+
+insertHouseholdExpenseBeneficiary:
+INSERT INTO householdExpenseBeneficiary (id, householdExpenseId, memberId, dependentId, amountMinorUnits, currency)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectHouseholdExpenseBeneficiaries:
+SELECT * FROM householdExpenseBeneficiary WHERE householdExpenseId = ?;
+
+deleteHouseholdExpenseBeneficiariesForExpense:
+DELETE FROM householdExpenseBeneficiary WHERE householdExpenseId = ?;
+
+CREATE TABLE householdExpenseContribution (
+    id TEXT NOT NULL PRIMARY KEY,
+    householdExpenseId TEXT NOT NULL,
+    memberId TEXT NOT NULL,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL
+);
+
+insertHouseholdExpenseContribution:
+INSERT INTO householdExpenseContribution (id, householdExpenseId, memberId, amountMinorUnits, currency)
+VALUES (?, ?, ?, ?, ?);
+
+selectHouseholdExpenseContributions:
+SELECT * FROM householdExpenseContribution WHERE householdExpenseId = ?;
+
+deleteHouseholdExpenseContributionsForExpense:
+DELETE FROM householdExpenseContribution WHERE householdExpenseId = ?;
 
 CREATE TABLE trip (
     id TEXT NOT NULL PRIMARY KEY,
@@ -230,6 +284,24 @@ SELECT * FROM expenseSplit WHERE tripExpenseId = ?;
 
 deleteExpenseSplitsForExpense:
 DELETE FROM expenseSplit WHERE tripExpenseId = ?;
+
+CREATE TABLE tripExpenseContribution (
+    id TEXT NOT NULL PRIMARY KEY,
+    tripExpenseId TEXT NOT NULL,
+    participantId TEXT NOT NULL,
+    amountMinorUnits INTEGER NOT NULL,
+    currency TEXT NOT NULL
+);
+
+insertTripExpenseContribution:
+INSERT INTO tripExpenseContribution (id, tripExpenseId, participantId, amountMinorUnits, currency)
+VALUES (?, ?, ?, ?, ?);
+
+selectTripExpenseContributions:
+SELECT * FROM tripExpenseContribution WHERE tripExpenseId = ?;
+
+deleteTripExpenseContributionsForExpense:
+DELETE FROM tripExpenseContribution WHERE tripExpenseId = ?;
 
 CREATE TABLE settlement (
     id TEXT NOT NULL PRIMARY KEY,

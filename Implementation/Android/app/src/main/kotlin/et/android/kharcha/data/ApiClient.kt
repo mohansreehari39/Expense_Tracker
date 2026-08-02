@@ -82,6 +82,16 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
         client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
     }
 
+    suspend fun addHouseholdDependent(householdId: String, name: String, category: String): HouseholdDependentDto =
+        client.post("$baseUrl/api/v1/households/$householdId/dependents") {
+            contentType(ContentType.Application.Json)
+            setBody(AddHouseholdDependentRequest(name, category))
+        }.body()
+
+    suspend fun archiveHouseholdDependent(householdId: String, dependentId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/dependents/$dependentId")
+    }
+
     suspend fun recordHouseholdSettlement(householdId: String, request: RecordHouseholdSettlementRequest): HouseholdSettlementsResponse =
         client.post("$baseUrl/api/v1/households/$householdId/settlements") {
             contentType(ContentType.Application.Json)
@@ -144,6 +154,12 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
     suspend fun archiveTripParticipant(tripId: String, participantId: String) {
         client.delete("$baseUrl/api/v1/trips/$tripId/participants/$participantId")
     }
+
+    suspend fun recordTripSettlement(tripId: String, request: RecordTripSettlementRequest): TripSettlementsResponse =
+        client.post("$baseUrl/api/v1/trips/$tripId/settlements") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.body()
 
     suspend fun addTripExpense(tripId: String, request: AddTripExpenseRequest): TripExpenseDto =
         client.post("$baseUrl/api/v1/trips/$tripId/expenses") {

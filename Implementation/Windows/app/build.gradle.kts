@@ -106,7 +106,13 @@ compose.desktop {
                 menu = true
                 shortcut = true
                 dirChooser = true
-                perUserInstall = true
+                // Machine-wide install (Program Files), like any normal
+                // Windows app — requires a UAC elevation prompt at install
+                // time. Previously `true`, which put the *app itself* (not
+                // just the database) under %LOCALAPPDATA%; only the
+                // database was ever meant to default there — see
+                // KharchaConfig.dataDir()/DataLocationDialog.kt.
+                perUserInstall = false
                 iconFile.set(project.file("icon.ico"))
                 // Stable across versions so a later installer upgrades this
                 // install in place (Add/Remove Programs) instead of creating

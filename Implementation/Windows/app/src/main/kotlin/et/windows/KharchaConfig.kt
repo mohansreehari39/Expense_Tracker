@@ -20,20 +20,42 @@ object KharchaConfig {
 
     val port: Int get() = if (isDev) DEV_PORT else PROD_PORT
 
+    private fun defaultBase(): File {
+        val localAppData = System.getenv("LOCALAPPDATA")
+        return if (localAppData != null) File(localAppData) else File(System.getProperty("user.home"), ".kharcha-appdata")
+    }
+
     /**
-     * `%LOCALAPPDATA%\Kharcha` on a real Windows install — `Local`, not
-     * `Roaming`, since a SQLite file has no business being synced across
-     * machines by a roaming profile. Falls back to a home-directory
-     * dotfolder when `LOCALAPPDATA` isn't set (e.g. developing from
-     * WSL/Linux — see CLAUDE.md's testing strategy, the app itself always
-     * still *runs* natively on Windows). Dev mode uses a sibling folder so
-     * a side-by-side test instance never touches real data.
+     * A fixed, never-overridden location (`%LOCALAPPDATA%\Kharcha\datadir.cfg`)
+     * whose *contents* — if present — name the real data directory
+     * elsewhere. This is how [dataDir] supports a user-chosen location
+     * (see [et.windows.ui.DataLocationDialog]) without a chicken-and-egg
+     * problem: the pointer file itself always lives at the one well-known
+     * default path, only the data it *points to* moves.
      */
+    private fun pointerFile(): File = File(defaultBase(), "Kharcha/datadir.cfg")
+
+    /** Currently-effective data directory, following the pointer file if one exists — see [pointerFile]. */
     fun dataDir(): File {
         val folderName = if (isDev) "Kharcha-dev" else "Kharcha"
-        val localAppData = System.getenv("LOCALAPPDATA")
-        val base = if (localAppData != null) File(localAppData) else File(System.getProperty("user.home"), ".kharcha-appdata")
-        return File(base, folderName)
+        val default = File(defaultBase(), folderName)
+        if (isDev) return default // dev mode never honors the override — always the sibling folder, so a side-by-side test instance can't collide with real data.
+        val override = pointerFile().takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
+        return if (override != null) File(override) else default
+    }
+
+    /** Default data directory the user-chosen override sits in front of — what [DataLocationDialog] shows/resets to. */
+    fun defaultDataDir(): File = File(defaultBase(), "Kharcha")
+
+    /** Persists a user-chosen data directory — see [pointerFile]. Takes effect on next launch; the already-open database connection isn't moved. */
+    fun setDataDirOverride(dir: File?) {
+        val pointer = pointerFile()
+        if (dir == null) {
+            pointer.delete()
+        } else {
+            pointer.parentFile?.mkdirs()
+            pointer.writeText(dir.absolutePath)
+        }
     }
 
     /** Shown to other devices during pairing so it's obvious which physical machine they're connecting to — see README V1 "identify the server by computer name." */

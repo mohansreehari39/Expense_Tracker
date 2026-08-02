@@ -177,65 +177,87 @@ pass next session once the installer launches cleanly.
       Compiles clean on Core/Windows/Android; not yet live-tested on a
       real device pair (both apps are uninstalled for a fresh test pass —
       see the item below).
+- [x] **Expense beneficiaries ("who all are included in the expense") +
+      contributors ("who all chipped in"), household + activity.** Two
+      new Core models — `HouseholdExpenseBeneficiary`/`HouseholdExpense
+      Contribution` (household) and the pre-existing `ExpenseSplit` plus
+      new `TripExpenseContribution` (trip, reusing the split table that
+      already existed for trip beneficiaries). New `HouseholdDependent`
+      (pet/kid/parent, user-named per household, `DependentCategory`
+      enum) — a beneficiary category that can receive spend but never
+      contributes; excluded from equal-split defaults and from "who
+      chipped in" entirely. Defaults: beneficiaries split equally across
+      active members/participants (never dependents unless explicitly
+      picked); contributions default 100% to whoever's entering the
+      expense. Both are overridable per-expense via a shared `SplitEditor`
+      UI component (new on both apps) offering **Equal / Percentage / Exact
+      amount** modes — percentage entry is UI-only, always resolved to
+      concrete `Money` (via `SplitCalculator` on Windows, a hand-ported
+      equal-split/percentage resolver on Android, matching the existing
+      Core-vs-Android split established by subcategories/budget math)
+      before anything reaches a database; the DB never stores a
+      percentage. Windows: new SQLDelight tables + `POST`/`DELETE
+      .../households/{id}/dependents[/{id}]`, `RecordExpenseRequest`/
+      `AddTripExpenseRequest` gained optional `beneficiarySplit`/
+      `contributionSplit` (a `SplitModeDto` — `EQUAL`/`EXACT`/
+      `PERCENTAGE`), household/trip expense responses now carry resolved
+      beneficiary/contribution lists, dependent management added to
+      Household Settings. Android: mirrored Room tables (migration
+      `6 → 7`), `LocalRepository`/`SyncEngine` push pending
+      dependents/splits and pull-reconcile them the same way
+      categories/members already do (delete-and-reinsert per expense,
+      not individually tracked pending), dependent management added to
+      household settings, `SplitEditor` wired into both household and
+      trip expense dialogs. Compiles clean on all three modules; not yet
+      live-tested (see the test-pass item below).
+- [x] **Trip/activity settlement recording.** `SettleUp` (Core domain)
+      already existed but had no route or UI — new `POST /trips/{id}/
+      settlements` route (Windows) mirroring the household settlement
+      route, new `TripSettlementsResponse`/`RecordTripSettlementRequest`
+      DTOs. Both apps' trip/activity screens gained a "Settle" button next
+      to each suggested settlement (identical placement to the household
+      screens' existing one), calling the new route and refreshing
+      balances immediately. Android's trip balances/suggestions now come
+      from the server (`api.trip(remoteId).suggestedSettlements`) when
+      linked, falling back to the existing local naive equal-split fold
+      when unlinked/unreachable — same pattern the household screen
+      already used for its own balances.
+- [x] **Installer: app installs like a normal Windows app.**
+      `perUserInstall` flipped from `true` to `false` in
+      `build.gradle.kts` — the app itself now installs to a normal
+      machine-wide location (Program Files) with a UAC elevation prompt
+      at install time, `dirChooser = true` still lets the user redirect
+      that. **Data-location override implemented as an in-app setting
+      instead of an installer-time WiX dialog** — a deliberate scope
+      change from the original plan (a second WiX directory-chooser
+      dialog), because authoring/verifying custom WiX UI sequences
+      without a live interactive install (this was done unattended)
+      isn't reliable, whereas an in-app setting is buildable and
+      testable the normal way. New "Data Location" row in the sidebar
+      opens `DataLocationDialog` — browse/type a folder, defaults to
+      `%LOCALAPPDATA%\Kharcha`, takes effect next launch.
+      `KharchaConfig.dataDir()` now follows a pointer file
+      (`%LOCALAPPDATA%\Kharcha\datadir.cfg`, a fixed well-known location
+      whose *contents* name the real, possibly-elsewhere data
+      directory — avoids a chicken-and-egg problem with the override
+      itself). **Not yet verified with a live install** — installing to
+      Program Files requires a UAC consent prompt, a secure-desktop
+      dialog that automated input can't click through unattended; the
+      code change and native build were completed and compiled, but the
+      actual install-and-launch needs a manual click when testing
+      resumes.
 
 ### V1 — remaining
 
-- [ ] **Expense beneficiaries ("who all are included in the expense"),
-      household + activity.** Splits *who the money was spent on*, as
-      opposed to who paid (see next item). A single expense can be
-      attributed across multiple beneficiaries with an explicit amount
-      each, and those amounts must sum to the expense total (validated,
-      not silently rebalanced). For households specifically, non-member
-      beneficiary categories are supported — pets/kids/parents — which
-      can receive spend but never contribute to it (excluded from "who
-      chipped in" and from equal-split default calculations). For
-      activities (trips), beneficiaries are just the participant list.
-      Default behavior: split equally among eligible beneficiaries
-      (household: members only, never pets/kids/parents; activity: all
-      participants), shown to the user as an editable starting point —
-      e.g. a trip expense that 3 of 4 friends consumed defaults to an
-      equal 3-way split with the 4th excluded, not silently included.
-- [ ] **Expense contributors ("who all chipped in"), household +
-      activity.** Splits *who actually paid* for an expense — how much
-      each contributor put toward the total, independent of the
-      beneficiary split above. Default: 100% attributed to whoever is
-      entering the expense, editable from there. This is the payer side
-      of the ledger that `SettleUp`/balance calculations should read from.
-- [ ] Trip/activity settlement recording — `SettleUp` already exists in
-      Core domain but has no route or UI (households got this in V1,
-      trips didn't).
-- [ ] **Installer: app installs like a normal Windows app; only the
-      database defaults to `%LOCALAPPDATA%`, and even that should be
-      user-overridable at install time.** Correction to last session's
-      work — `%LOCALAPPDATA%\Kharcha` was only ever meant for the
-      *database* (see the completed item below), but `build.gradle.kts`'s
-      `windows { perUserInstall = true }` also put the *app itself* there
-      instead of a normal machine-wide location. Fix:
-      - Set the app install location back to a standard one (e.g.
-        `C:\Program Files (x86)\Kharcha`, i.e. `perUserInstall = false` or
-        removed, accepting the UAC elevation prompt that implies) — `dirChooser
-        = true` already lets the user pick a different install folder for
-        the app itself, same as any normal Windows installer.
-      - Additionally offer a **separate** directory prompt during install
-        specifically for the *database* location, defaulting to
-        `%LOCALAPPDATA%\Kharcha` if the user doesn't change it — like the
-        "install path" vs "data path" split some installers offer. This
-        needs custom WiX authoring beyond jpackage's default template
-        (jpackage/Compose Desktop's `dirChooser` only prompts once, for
-        the app's own install directory) — likely via jpackage's
-        `--resource-dir` override to supply a custom WiX UI dialog
-        sequence, or a post-install custom action.
-      - The chosen database path then needs to reach the running app —
-        e.g. the installer writes it to a small config file or registry
-        value (`HKCU\Software\Kharcha` or similar) at install time, and
-        `KharchaConfig.dataDir()` checks for that override before falling
-        back to its current hardcoded `%LOCALAPPDATA%\Kharcha` default.
 - [ ] **Full live-device test pass** for the entire V1 batch above — no
       longer blocked (installer now launches) but not yet run: pairing
       with the new one-time secret, computer-name QR display,
       Android-created household syncing to Windows, spending trends
-      screen, settle button, budget figure rows, plus the beneficiary/
-      contributor splits and trip/activity settlement recording above.
+      screen, settle button (household + trip), budget figure rows, the
+      beneficiary/contributor split editor (equal/percentage/exact, both
+      apps), dependent management, and the installer's Program-Files
+      install + Data Location setting (needs a manual UAC click — see
+      above).
 
 ### V2 — planned
 
@@ -246,8 +268,10 @@ pass next session once the installer launches cleanly.
       04-pairing-and-crypto.md`) as its trust foundation — V1 only shipped
       a scoped-down interim version (single-use pairing secret + required
       device credentials on every request), not the full design.
-- [ ] Split-mode picker UI (exact/percentage/weighted) — `SplitCalculator`
-      already supports all four modes, both app UIs are equal-only.
+- [ ] Weighted split mode UI — `SplitCalculator`/`SplitEditor` support
+      Equal/Percentage/Exact today (see the beneficiary/contributor split
+      item in V1), `SplitMode.Weighted` exists in Core domain but has no
+      UI on either app.
 - [ ] Rename support for categories/members/participants (create +
       archive/remove only today, on both apps).
 - [ ] Windows category management UI (rename/archive; currently

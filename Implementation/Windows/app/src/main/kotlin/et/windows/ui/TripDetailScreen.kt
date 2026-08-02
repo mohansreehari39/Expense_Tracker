@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.AddTripExpenseRequest
+import et.windows.server.RecordTripSettlementRequest
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripExpenseDto
 import kotlinx.coroutines.launch
@@ -126,7 +127,22 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                                 current.suggestedSettlements.forEach { s ->
                                     val fromName = current.participants.find { it.id == s.fromParticipantId }?.displayName ?: s.fromParticipantId
                                     val toName = current.participants.find { it.id == s.toParticipantId }?.displayName ?: s.toParticipantId
-                                    Text("$fromName → $toName: ${formatMoney(s.amount)}")
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("$fromName → $toName: ${formatMoney(s.amount)}")
+                                        TextButton(onClick = {
+                                            scope.launch {
+                                                api.recordTripSettlement(
+                                                    tripId,
+                                                    RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
+                                                )
+                                                reload()
+                                            }
+                                        }) { Text("Settle") }
+                                    }
                                 }
                             }
                         }
@@ -167,7 +183,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
             participants = current.participants,
             currency = currency,
             onDismiss = { showAddExpense = false },
-            onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
+            onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note, beneficiarySplit, contributionSplit ->
                 scope.launch {
                     api.addTripExpense(
                         tripId,
@@ -177,6 +193,8 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                             paidByParticipantId = paidByParticipantId,
                             occurredAt = occurredAt,
                             note = note,
+                            beneficiarySplit = beneficiarySplit,
+                            contributionSplit = contributionSplit,
                         ),
                     )
                     showAddExpense = false
@@ -193,7 +211,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                 currency = currency,
                 expenseToEdit = expense,
                 onDismiss = { expenseToEdit = null },
-                onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note ->
+                onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note, beneficiarySplit, contributionSplit ->
                     scope.launch {
                         api.updateTripExpense(
                             tripId,
@@ -204,6 +222,8 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                                 paidByParticipantId = paidByParticipantId,
                                 occurredAt = occurredAt,
                                 note = note,
+                                beneficiarySplit = beneficiarySplit,
+                                contributionSplit = contributionSplit,
                             ),
                         )
                         expenseToEdit = null
