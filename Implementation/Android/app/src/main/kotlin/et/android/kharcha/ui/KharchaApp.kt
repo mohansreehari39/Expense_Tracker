@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
@@ -57,10 +59,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import et.android.kharcha.BuildConfig
 import et.android.kharcha.data.ApiClient
 import et.android.kharcha.data.ConnectionStore
 import et.android.kharcha.data.LocalRepository
 import et.android.kharcha.data.SyncEngine
+import et.android.kharcha.data.UpdateChecker
+import et.android.kharcha.data.UpdateInfo
+import et.android.kharcha.data.UpdateInstaller
 import et.android.kharcha.data.decodeJoinInvite
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.HouseholdEntity
@@ -141,6 +147,15 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     var householdSettingsTarget by remember { mutableStateOf<String?>(null) }
     var activitySettingsTarget by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    var availableUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+
+    // Silent on-launch check — only interrupts the user if something's
+    // actually available. Failures (offline, GitHub unreachable) are
+    // swallowed the same as "no update", not surfaced as an error.
+    LaunchedEffect(Unit) {
+        availableUpdate = runCatching { UpdateChecker.checkForUpdate(BuildConfig.VERSION_NAME) }.getOrNull()
+    }
 
     // Best-effort background sync for anything linked to a paired server —
     // a household/activity that's never been joined/paired is untouched by
@@ -268,6 +283,20 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                     },
                     darkMode = darkMode,
                     onSetDarkMode = onSetDarkMode,
+                    availableUpdate = availableUpdate,
+                    checkingUpdate = checkingUpdate,
+                    onCheckForUpdates = {
+                        scope.launch {
+                            checkingUpdate = true
+                            val found = runCatching { UpdateChecker.checkForUpdate(BuildConfig.VERSION_NAME) }.getOrNull()
+                            checkingUpdate = false
+                            if (found != null) {
+                                availableUpdate = found
+                            } else {
+                                snackbarHostState.showSnackbar("You're up to date (v${BuildConfig.VERSION_NAME})")
+                            }
+                        }
+                    },
                 )
             }
         },
@@ -397,6 +426,22 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     connectingMessage?.let { message ->
         ConnectingOverlay(message)
     }
+
+    availableUpdate?.let { update ->
+        UpdateAvailableDialog(
+            update = update,
+            onDismiss = { availableUpdate = null },
+            onInstall = {
+                if (UpdateInstaller.canInstallPackages(context)) {
+                    UpdateInstaller.downloadAndInstall(context, update)
+                    scope.launch { snackbarHostState.showSnackbar("Downloading v${update.version}…") }
+                    availableUpdate = null
+                } else {
+                    UpdateInstaller.requestInstallPermission(context)
+                }
+            },
+        )
+    }
 }
 
 /** Best-effort remote archive (if this household is linked and the member has already synced) followed by an unconditional local removal — mirrors Windows' immediate "✕ Remove" behavior rather than queuing an offline pending-delete. */
@@ -462,6 +507,29 @@ private fun ConnectingOverlay(message: String) {
     }
 }
 
+@Composable
+private fun UpdateAvailableDialog(update: UpdateInfo, onDismiss: () -> Unit, onInstall: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Update available") },
+        text = {
+            Column {
+                Text("Kharcha v${update.version} is available.")
+                if (update.notes.isNotBlank()) {
+                    Text(
+                        update.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = onInstall) { Text("Update") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Later") } },
+    )
+}
+
 /** A paired server counts as "Connected" if it's been reached within the last two sync intervals; older than that reads as "Offline" rather than claiming a live connection that may no longer hold. */
 private const val CONNECTED_STALE_AFTER_MS = SYNC_INTERVAL_MS * 2
 
@@ -483,6 +551,9 @@ private fun DrawerContent(
     onRemoveServer: (String) -> Unit,
     darkMode: Boolean,
     onSetDarkMode: (Boolean) -> Unit,
+    availableUpdate: UpdateInfo?,
+    checkingUpdate: Boolean,
+    onCheckForUpdates: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
         LazyColumn(Modifier.weight(1f)) {
@@ -562,6 +633,19 @@ private fun DrawerContent(
                 }
             }
         }
+        NavigationDrawerItem(
+            label = { Text(if (availableUpdate != null) "Update available (v${availableUpdate.version})" else "Check for Updates") },
+            icon = {
+                if (checkingUpdate) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Filled.SystemUpdate, contentDescription = null)
+                }
+            },
+            selected = false,
+            onClick = onCheckForUpdates,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
