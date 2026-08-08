@@ -30,6 +30,23 @@ An Android app + Windows app for tracking household and trip expenses.
   trip settlement summaries, and simple spending suggestions.
 - Expenses can also be entered directly from the Windows app.
 
+## Data safety policy
+
+V1's schema is not frozen forever — V2 and later will add tables/columns
+as features grow. What's frozen is the guarantee: **no schema change may
+ever destroy a user's existing data.** Concretely:
+- Android: no `fallbackToDestructiveMigration()`, ever. Every version
+  bump ships a real, additive `Migration(old, new)` object (new
+  tables/columns only — never drop/rename a column that might hold real
+  data), tested against the committed schema history in `app/schemas/`.
+- Windows: every new table/column gets a matching `CREATE TABLE IF NOT
+  EXISTS` / `addColumnIfMissing` line in `Database.kt`'s
+  `migrateExistingDatabase`, so an existing install upgrades in place
+  instead of failing or wiping.
+- If a future change genuinely can't be done additively, that's a stop
+  point — ask before writing it, don't silently wipe rows to make the
+  new schema fit.
+
 ## Pending for production
 
 A living checklist, organized by milestone — check an item off (or delete
@@ -40,12 +57,10 @@ each item.
 
 ### V1 — completed
 
-**Status note:** everything below compiles and was reasoned through
-carefully, but the planned end-to-end live-device test pass covering this
-whole batch was interrupted by the installer bug (see "V1 — remaining"
-below) before it could run — so "completed" here means "implemented,
-compiles, not yet re-verified live this session." Re-run the full test
-pass next session once the installer launches cleanly.
+**Status note:** the full V1 batch below has been live-device tested —
+pairing, sync, budgets, settlement, subcategories, beneficiary/
+contributor splits, dependents, and the installer all verified on a real
+Android phone and a native Windows install.
 
 - [x] Categories created on Android never got pushed to the Windows
       server — fixed via `SyncEngine.pushPendingCategories`.
@@ -174,12 +189,10 @@ pass next session once the installer launches cleanly.
       categories already sync (push pending, pull-and-reconcile by
       `remoteId`), gated behind a new Room migration (`5 → 6`, additive
       only — new table + nullable column, no existing data touched).
-      Compiles clean on Core/Windows/Android; not yet live-tested on a
-      real device pair (both apps are uninstalled for a fresh test pass —
-      see the item below).
-- [x] **Expense beneficiaries ("who all are included in the expense") +
-      contributors ("who all chipped in"), household + activity.** Two
-      new Core models — `HouseholdExpenseBeneficiary`/`HouseholdExpense
+      Live-device tested on both apps.
+- [x] **Expense beneficiaries ("who's it for") + contributors ("who
+      chipped in"), household + activity — live-device tested.** Two new
+      Core models — `HouseholdExpenseBeneficiary`/`HouseholdExpense
       Contribution` (household) and the pre-existing `ExpenseSplit` plus
       new `TripExpenseContribution` (trip, reusing the split table that
       already existed for trip beneficiaries). New `HouseholdDependent`
@@ -189,75 +202,70 @@ pass next session once the installer launches cleanly.
       chipped in" entirely. Defaults: beneficiaries split equally across
       active members/participants (never dependents unless explicitly
       picked); contributions default 100% to whoever's entering the
-      expense. Both are overridable per-expense via a shared `SplitEditor`
-      UI component (new on both apps) offering **Equal / Percentage / Exact
-      amount** modes — percentage entry is UI-only, always resolved to
-      concrete `Money` (via `SplitCalculator` on Windows, a hand-ported
-      equal-split/percentage resolver on Android, matching the existing
-      Core-vs-Android split established by subcategories/budget math)
-      before anything reaches a database; the DB never stores a
-      percentage. Windows: new SQLDelight tables + `POST`/`DELETE
-      .../households/{id}/dependents[/{id}]`, `RecordExpenseRequest`/
-      `AddTripExpenseRequest` gained optional `beneficiarySplit`/
-      `contributionSplit` (a `SplitModeDto` — `EQUAL`/`EXACT`/
-      `PERCENTAGE`), household/trip expense responses now carry resolved
-      beneficiary/contribution lists, dependent management added to
-      Household Settings. Android: mirrored Room tables (migration
-      `6 → 7`), `LocalRepository`/`SyncEngine` push pending
-      dependents/splits and pull-reconcile them the same way
-      categories/members already do (delete-and-reinsert per expense,
-      not individually tracked pending), dependent management added to
-      household settings, `SplitEditor` wired into both household and
-      trip expense dialogs. Compiles clean on all three modules; not yet
-      live-tested (see the test-pass item below).
-- [x] **Trip/activity settlement recording.** `SettleUp` (Core domain)
-      already existed but had no route or UI — new `POST /trips/{id}/
-      settlements` route (Windows) mirroring the household settlement
-      route, new `TripSettlementsResponse`/`RecordTripSettlementRequest`
-      DTOs. Both apps' trip/activity screens gained a "Settle" button next
-      to each suggested settlement (identical placement to the household
-      screens' existing one), calling the new route and refreshing
-      balances immediately. Android's trip balances/suggestions now come
-      from the server (`api.trip(remoteId).suggestedSettlements`) when
-      linked, falling back to the existing local naive equal-split fold
-      when unlinked/unreachable — same pattern the household screen
-      already used for its own balances.
-- [x] **Installer: app installs like a normal Windows app.**
-      `perUserInstall` flipped from `true` to `false` in
-      `build.gradle.kts` — the app itself now installs to a normal
-      machine-wide location (Program Files) with a UAC elevation prompt
-      at install time, `dirChooser = true` still lets the user redirect
-      that. **Data-location override implemented as an in-app setting
-      instead of an installer-time WiX dialog** — a deliberate scope
-      change from the original plan (a second WiX directory-chooser
-      dialog), because authoring/verifying custom WiX UI sequences
-      without a live interactive install (this was done unattended)
-      isn't reliable, whereas an in-app setting is buildable and
-      testable the normal way. New "Data Location" row in the sidebar
-      opens `DataLocationDialog` — browse/type a folder, defaults to
-      `%LOCALAPPDATA%\Kharcha`, takes effect next launch.
-      `KharchaConfig.dataDir()` now follows a pointer file
+      expense — computed live and shown up front, not hidden behind a
+      mode picker. **No separate "Paid by" selector** — it was redundant
+      with the contribution split, so it's gone; the stored payer is
+      derived from whichever contributor ends up with the largest share.
+      Each split is a **sub-dialog** (`SplitEditorDialog`, both apps),
+      opened from a one-line summary row on the add-expense form (e.g.
+      "Split equally among 3", "100% Sreehari") rather than shown inline —
+      opens pre-filled with the live default, editable via a single
+      ₹/% slide toggle (same visual language as the dark/light mode
+      switch) rather than four separate mode buttons. Percentage entry is
+      UI-only, always resolved to concrete minor-units before anything
+      reaches a database — via `SplitCalculator` on Windows, a
+      hand-ported equal-split/percentage resolver on Android, matching
+      the existing Core-vs-Android split established by subcategories/
+      budget math — the DB never stores a percentage. Windows: new
+      SQLDelight tables + `POST`/`DELETE .../households/{id}/
+      dependents[/{id}]`, `RecordExpenseRequest`/`AddTripExpenseRequest`
+      gained `beneficiarySplit`/`contributionSplit` (a `SplitModeDto`,
+      always sent as resolved `EXACT` amounts from the UI), household/
+      trip expense responses carry resolved beneficiary/contribution
+      lists, dependent management added to Household Settings. Android:
+      mirrored Room tables (migration `6 → 7`), `LocalRepository`/
+      `SyncEngine` push pending dependents/splits and pull-reconcile them
+      the same way categories/members already do (delete-and-reinsert
+      per expense). Household/Activity Settings' Members/Dependents/
+      Participants lists are now **collapsible, collapsed by default**
+      for households (member/dependent lists can get long), **expanded
+      by default** for activities (just participants, usually a handful).
+- [x] **Trip/activity settlement recording — live-device tested.**
+      `SettleUp` (Core domain) already existed but had no route or UI —
+      new `POST /trips/{id}/settlements` route (Windows) mirroring the
+      household settlement route, new `TripSettlementsResponse`/
+      `RecordTripSettlementRequest` DTOs. Both apps' trip/activity
+      screens gained a "Settle" button next to each suggested settlement
+      (identical placement to the household screens' existing one),
+      calling the new route and refreshing balances immediately.
+      Android's trip balances/suggestions now come from the server
+      (`api.trip(remoteId).suggestedSettlements`) when linked, falling
+      back to the existing local naive equal-split fold when unlinked/
+      unreachable — same pattern the household screen already used.
+- [x] **Installer: app installs like a normal Windows app — live-device
+      tested.** `perUserInstall` flipped from `true` to `false` in
+      `build.gradle.kts` — the app now installs to `C:\Program Files\
+      Kharcha\` like any normal Windows app; `dirChooser = true` still
+      lets the user redirect that. No UAC prompt actually appeared during
+      testing on the dev machine (session already had sufficient rights)
+      — installer wizard, install, and launch from Program Files all
+      confirmed working end to end. **Data-location override implemented
+      as an in-app setting instead of an installer-time WiX dialog** — a
+      deliberate scope change from the original plan (a second WiX
+      directory-chooser dialog), since authoring/verifying custom WiX UI
+      sequences reliably was the bigger risk. New "Data Location" row in
+      the sidebar opens `DataLocationDialog` — browse/type a folder,
+      defaults to `%LOCALAPPDATA%\Kharcha`, takes effect next launch.
+      `KharchaConfig.dataDir()` follows a pointer file
       (`%LOCALAPPDATA%\Kharcha\datadir.cfg`, a fixed well-known location
-      whose *contents* name the real, possibly-elsewhere data
-      directory — avoids a chicken-and-egg problem with the override
-      itself). **Not yet verified with a live install** — installing to
-      Program Files requires a UAC consent prompt, a secure-desktop
-      dialog that automated input can't click through unattended; the
-      code change and native build were completed and compiled, but the
-      actual install-and-launch needs a manual click when testing
-      resumes.
+      whose *contents* name the real, possibly-elsewhere data directory).
 
-### V1 — remaining
-
-- [ ] **Full live-device test pass** for the entire V1 batch above — no
-      longer blocked (installer now launches) but not yet run: pairing
-      with the new one-time secret, computer-name QR display,
-      Android-created household syncing to Windows, spending trends
-      screen, settle button (household + trip), budget figure rows, the
-      beneficiary/contributor split editor (equal/percentage/exact, both
-      apps), dependent management, and the installer's Program-Files
-      install + Data Location setting (needs a manual UAC click — see
-      above).
+**V1 is feature-complete and live-device tested** — pairing, sync,
+budgets, settlement, subcategories, beneficiary/contributor splits,
+dependents, and the installer have all been verified on a real Android
+phone + a native Windows install. Any further issues found in normal use
+get fixed as regular bugs rather than tracked here; V2 below is the next
+deliberate scope.
 
 ### V2 — planned
 

@@ -1,5 +1,6 @@
 package et.android.kharcha.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +9,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -47,6 +52,8 @@ fun HouseholdSettingsDialog(
     var budgetText by remember { mutableStateOf(currentBudgetMinorUnits?.let { (it / 100.0).let { v -> if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString() } } ?: "") }
     var settlementEnabled by remember { mutableStateOf(currentSettlementEnabled) }
     var showAddDependent by remember { mutableStateOf(false) }
+    var membersExpanded by remember { mutableStateOf(false) }
+    var dependentsExpanded by remember { mutableStateOf(false) }
     val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val canSubmit = name.isNotBlank() && (budgetText.isBlank() || budgetMinorUnits != null)
     val scope = rememberCoroutineScope()
@@ -55,7 +62,7 @@ fun HouseholdSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Household Settings") },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -82,19 +89,30 @@ fun HouseholdSettingsDialog(
                     Switch(checked = settlementEnabled, onCheckedChange = { settlementEnabled = it })
                 }
 
-                Text("Members", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
-                if (members.isEmpty()) {
-                    Text("No members yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        members.forEach { member ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { onRemoveMember(member.id) }) { Text("✕ Remove") }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp).clickable { membersExpanded = !membersExpanded },
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (membersExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                        Text("Members (${members.size})", style = MaterialTheme.typography.titleSmall)
+                    }
+                }
+                if (membersExpanded) {
+                    if (members.isEmpty()) {
+                        Text("No members yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                            members.forEach { member ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = { onRemoveMember(member.id) }) { Text("✕ Remove") }
+                                }
                             }
                         }
                     }
@@ -105,28 +123,34 @@ fun HouseholdSettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column {
-                        Text("Dependents", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "Pets/kids/parents expenses can be spent on — never chip in.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f).clickable { dependentsExpanded = !dependentsExpanded },
+                    ) {
+                        Icon(if (dependentsExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, contentDescription = null)
+                        Text("Dependents (${dependents.size})", style = MaterialTheme.typography.titleSmall)
                     }
                     TextButton(onClick = { showAddDependent = true }) { Text("+ Add") }
                 }
-                if (dependents.isEmpty()) {
-                    Text("No dependents yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        dependents.forEach { dependent ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("${dependent.name} (${dependent.category.lowercase()})", style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = { onRemoveDependent(dependent.id) }) { Text("✕ Remove") }
+                if (dependentsExpanded) {
+                    Text(
+                        "Pets/kids/parents expenses can be spent on — never chip in.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (dependents.isEmpty()) {
+                        Text("No dependents yet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                            dependents.forEach { dependent ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("${dependent.name} (${dependent.category.lowercase()})", style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = { onRemoveDependent(dependent.id) }) { Text("✕ Remove") }
+                                }
                             }
                         }
                     }

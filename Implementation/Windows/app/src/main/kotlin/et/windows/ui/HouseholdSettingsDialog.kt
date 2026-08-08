@@ -1,11 +1,13 @@
 package et.windows.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -54,6 +56,8 @@ fun HouseholdSettingsDialog(
     var showAddMember by remember { mutableStateOf(false) }
     var dependents by remember { mutableStateOf<List<HouseholdDependentDto>>(emptyList()) }
     var showAddDependent by remember { mutableStateOf(false) }
+    var membersExpanded by remember { mutableStateOf(false) }
+    var dependentsExpanded by remember { mutableStateOf(false) }
     val currency = currentDefaultBudget?.currency ?: "INR"
     val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
     val budgetTextIsValid = budgetText.isBlank() || (budgetMinorUnits != null && budgetMinorUnits > 0)
@@ -71,7 +75,7 @@ fun HouseholdSettingsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Household Settings") },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -114,30 +118,38 @@ fun HouseholdSettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Members", style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { membersExpanded = !membersExpanded },
+                    ) {
+                        Text(if (membersExpanded) "▾" else "▸", modifier = Modifier.width(20.dp))
+                        Text("Members (${members.size})", style = MaterialTheme.typography.titleSmall)
+                    }
                     TextButton(onClick = { showAddMember = true }) { Text("+ Add") }
                 }
-                if (members.isEmpty()) {
-                    Text(
-                        "No members yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        members.forEach { member ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        api.archiveMember(householdId, member.id)
-                                        members = members.filterNot { it.id == member.id }
-                                    }
-                                }) { Text("✕ Remove") }
+                if (membersExpanded) {
+                    if (members.isEmpty()) {
+                        Text(
+                            "No members yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                            members.forEach { member ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            api.archiveMember(householdId, member.id)
+                                            members = members.filterNot { it.id == member.id }
+                                        }
+                                    }) { Text("✕ Remove") }
+                                }
                             }
                         }
                     }
@@ -148,37 +160,43 @@ fun HouseholdSettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Column {
-                        Text("Dependents", style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            "Pets/kids/parents expenses can be spent on — never chip in.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { dependentsExpanded = !dependentsExpanded },
+                    ) {
+                        Text(if (dependentsExpanded) "▾" else "▸", modifier = Modifier.width(20.dp))
+                        Text("Dependents (${dependents.size})", style = MaterialTheme.typography.titleSmall)
                     }
                     TextButton(onClick = { showAddDependent = true }) { Text("+ Add") }
                 }
-                if (dependents.isEmpty()) {
+                if (dependentsExpanded) {
                     Text(
-                        "No dependents yet.",
+                        "Pets/kids/parents expenses can be spent on — never chip in.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                } else {
-                    Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
-                        dependents.forEach { dependent ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text("${dependent.name} (${dependent.category.lowercase()})", style = MaterialTheme.typography.bodyMedium)
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        api.archiveHouseholdDependent(householdId, dependent.id)
-                                        dependents = dependents.filterNot { it.id == dependent.id }
-                                    }
-                                }) { Text("✕ Remove") }
+                    if (dependents.isEmpty()) {
+                        Text(
+                            "No dependents yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                            dependents.forEach { dependent ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("${dependent.name} (${dependent.category.lowercase()})", style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            api.archiveHouseholdDependent(householdId, dependent.id)
+                                            dependents = dependents.filterNot { it.id == dependent.id }
+                                        }
+                                    }) { Text("✕ Remove") }
+                                }
                             }
                         }
                     }
