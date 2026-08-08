@@ -21,6 +21,7 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+Keystore_Password.txt
 
 # Logs
 *.log
