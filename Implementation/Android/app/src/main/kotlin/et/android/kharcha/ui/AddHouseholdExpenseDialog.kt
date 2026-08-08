@@ -2,14 +2,15 @@ package et.android.kharcha.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -28,7 +29,14 @@ import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.SubcategoryEntity
 
-/** Also used to edit an existing expense, when [expenseToEdit] is non-null. */
+/**
+ * Also used to edit an existing expense, when [expenseToEdit] is
+ * non-null. There's no separate "Paid by" chooser — [defaultMemberId]
+ * (whoever's using this device) is who the "Who chipped in" split
+ * defaults to 100% on; the actual [HouseholdExpenseEntity.paidByMemberId]
+ * stored on the row is derived from whichever contributor ends up with
+ * the largest share once that split is edited.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddHouseholdExpenseDialog(
@@ -49,8 +57,8 @@ fun AddHouseholdExpenseDialog(
         paidByMemberId: String,
         occurredAt: Long,
         note: String,
-        beneficiaries: List<Pair<String, Long>>?,
-        contributions: List<Pair<String, Long>>?,
+        beneficiaries: List<Pair<String, Long>>,
+        contributions: List<Pair<String, Long>>,
     ) -> Unit,
 ) {
     var amountText by remember { mutableStateOf(expenseToEdit?.let { (it.amountMinorUnits / 100.0).toString() } ?: "") }
@@ -60,11 +68,26 @@ fun AddHouseholdExpenseDialog(
     var selectedCategoryId by remember { mutableStateOf(expenseToEdit?.categoryId ?: categories.firstOrNull()?.id) }
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     var subcategories by remember { mutableStateOf(emptyList<SubcategoryEntity>()) }
-    var selectedMemberId by remember { mutableStateOf(expenseToEdit?.paidByMemberId ?: defaultMemberId ?: members.firstOrNull()?.id) }
-    var beneficiarySplit by remember { mutableStateOf<List<Pair<String, Long>>?>(null) }
-    var contributionSplit by remember { mutableStateOf<List<Pair<String, Long>>?>(null) }
+    val payerFallback = defaultMemberId ?: members.firstOrNull()?.id
     val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
-    val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && selectedMemberId != null
+    val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && payerFallback != null
+
+    val beneficiaryCandidates = members.map { SplitCandidate(it.id, it.displayName) } +
+        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") }
+    val contributionCandidates = members.map { SplitCandidate(it.id, it.displayName) }
+
+    // null means "still the default" — recomputed live from the current amount; once the user
+    // saves from the sub-dialog it becomes a fixed, explicit map (see README's beneficiary/
+    // contributor split entry for why: defaults must stay visible/live, not a one-time snapshot).
+    var beneficiaryAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    var contributionAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    var showBeneficiaryEditor by remember { mutableStateOf(false) }
+    var showContributionEditor by remember { mutableStateOf(false) }
+
+    val effectiveBeneficiaries = beneficiaryAmounts
+        ?: equalSplitMinorUnits(amountMinorUnits ?: 0L, members.map { it.id })
+    val effectiveContributions = contributionAmounts
+        ?: (payerFallback?.let { mapOf(it to (amountMinorUnits ?: 0L)) } ?: emptyMap())
 
     LaunchedEffect(selectedCategoryId) {
         subcategories = selectedCategoryId?.let { onGetSubcategories(it) } ?: emptyList()
@@ -74,7 +97,7 @@ fun AddHouseholdExpenseDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (expenseToEdit == null) "Add Household Expense" else "Edit Expense") },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
@@ -115,25 +138,6 @@ fun AddHouseholdExpenseDialog(
                     )
                 }
 
-                Text("Paid by", style = MaterialTheme.typography.labelMedium)
-                if (members.isEmpty()) {
-                    Text(
-                        "No members yet — add some from Settings.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(members) { member ->
-                            FilterChip(
-                                selected = selectedMemberId == member.id,
-                                onClick = { selectedMemberId = member.id },
-                                label = { Text(member.displayName) },
-                            )
-                        }
-                    }
-                }
-
                 DateField(label = "Date", occurredAtMillis = occurredAt, onDateSelected = { occurredAt = it }, modifier = Modifier.fillMaxWidth())
 
                 OutlinedTextField(
@@ -144,24 +148,17 @@ fun AddHouseholdExpenseDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                SplitEditor(
+                SplitSummaryRow(
                     label = "Who's it for",
-                    candidates = members.map { SplitCandidate(it.id, it.displayName) } +
-                        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") },
-                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
-                    currency = currency,
-                    defaultSelectedIds = members.map { it.id }.toSet(),
-                    onSplitChanged = { beneficiarySplit = it },
+                    summary = summarizeSplit(effectiveBeneficiaries, beneficiaryCandidates, amountMinorUnits ?: 0L),
+                    onClick = { showBeneficiaryEditor = true },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                SplitEditor(
+                SplitSummaryRow(
                     label = "Who chipped in",
-                    candidates = members.map { SplitCandidate(it.id, it.displayName) },
-                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
-                    currency = currency,
-                    defaultSelectedIds = setOfNotNull(selectedMemberId),
-                    onSplitChanged = { contributionSplit = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    summary = summarizeSplit(effectiveContributions, contributionCandidates, amountMinorUnits ?: 0L),
+                    onClick = { showContributionEditor = true },
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 )
             }
         },
@@ -169,19 +166,56 @@ fun AddHouseholdExpenseDialog(
             Button(
                 enabled = canSubmit,
                 onClick = {
+                    val contributions = effectiveContributions
+                    val paidBy = contributions.maxByOrNull { it.value }?.key ?: payerFallback!!
                     onSubmit(
                         selectedCategoryId!!,
                         selectedSubcategoryId,
                         amountMinorUnits!!,
-                        selectedMemberId!!,
+                        paidBy,
                         occurredAt,
                         note,
-                        beneficiarySplit,
-                        contributionSplit,
+                        effectiveBeneficiaries.toList(),
+                        contributions.toList(),
                     )
                 },
             ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showBeneficiaryEditor) {
+        SplitEditorDialog(
+            title = "Who's it for",
+            candidates = beneficiaryCandidates,
+            totalAmountMinorUnits = amountMinorUnits ?: 0L,
+            currency = currency,
+            initialAmounts = effectiveBeneficiaries,
+            onDismiss = { showBeneficiaryEditor = false },
+            onSave = { beneficiaryAmounts = it; showBeneficiaryEditor = false },
+        )
+    }
+    if (showContributionEditor) {
+        SplitEditorDialog(
+            title = "Who chipped in",
+            candidates = contributionCandidates,
+            totalAmountMinorUnits = amountMinorUnits ?: 0L,
+            currency = currency,
+            initialAmounts = effectiveContributions,
+            onDismiss = { showContributionEditor = false },
+            onSave = { contributionAmounts = it; showContributionEditor = false },
+        )
+    }
+}
+
+/** A collapsed row showing the current split's summary, tap to open [SplitEditorDialog]. */
+@Composable
+private fun SplitSummaryRow(label: String, summary: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium)
+        TextButton(onClick = onClick) { Text(summary) }
+    }
 }

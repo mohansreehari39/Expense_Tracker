@@ -2,14 +2,15 @@ package et.windows.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,7 +30,13 @@ import et.windows.server.RecordExpenseRequest
 import et.windows.server.SplitModeDto
 import et.windows.server.SubcategoryDto
 
-/** Also used to edit an existing expense, when [expenseToEdit] is non-null. */
+/**
+ * Also used to edit an existing expense, when [expenseToEdit] is
+ * non-null. There's no separate "Paid by" chooser — the "Who chipped in"
+ * split defaults to 100% on the first member and is the single source of
+ * truth for who paid; [RecordExpenseRequest.paidByMemberId] is derived
+ * from whichever contributor ends up with the largest share.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseDialog(
@@ -51,18 +58,30 @@ fun AddExpenseDialog(
     var localCategories by remember { mutableStateOf(categories) }
     var selectedCategoryId by remember { mutableStateOf(expenseToEdit?.categoryId ?: categories.firstOrNull()?.id) }
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
-    var selectedMemberId by remember { mutableStateOf(expenseToEdit?.paidByMemberId ?: members.firstOrNull()?.id) }
-    var beneficiarySplit by remember { mutableStateOf<SplitModeDto?>(null) }
-    var contributionSplit by remember { mutableStateOf<SplitModeDto?>(null) }
     val availableSubcategories = localCategories.find { it.id == selectedCategoryId }?.subcategories ?: emptyList()
+    val payerFallback = expenseToEdit?.paidByMemberId ?: members.firstOrNull()?.id
     val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
-    val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && selectedMemberId != null
+    val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && payerFallback != null
+
+    val beneficiaryCandidates = members.map { SplitCandidate(it.id, it.displayName) } +
+        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") }
+    val contributionCandidates = members.map { SplitCandidate(it.id, it.displayName) }
+
+    var beneficiaryAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    var contributionAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    var showBeneficiaryEditor by remember { mutableStateOf(false) }
+    var showContributionEditor by remember { mutableStateOf(false) }
+
+    val effectiveBeneficiaries = beneficiaryAmounts
+        ?: equalSplitMinorUnits(amountMinorUnits ?: 0L, members.map { it.id })
+    val effectiveContributions = contributionAmounts
+        ?: (payerFallback?.let { mapOf(it to (amountMinorUnits ?: 0L)) } ?: emptyMap())
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (expenseToEdit == null) "Add Household Expense" else "Edit Household Expense") },
         text = {
-            Column {
+            Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
@@ -101,24 +120,6 @@ fun AddExpenseDialog(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Text("Paid by")
-                if (members.isEmpty()) {
-                    Text(
-                        "No members yet — add some from the household settings.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(members) { member ->
-                            FilterChip(
-                                selected = selectedMemberId == member.id,
-                                onClick = { selectedMemberId = member.id },
-                                label = { Text(member.displayName) },
-                            )
-                        }
-                    }
-                }
                 DateField(
                     label = "Date",
                     occurredAtMillis = occurredAt,
@@ -131,42 +132,37 @@ fun AddExpenseDialog(
                     label = { Text("Note (optional)") },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                SplitEditor(
-                    label = "Who's it for",
-                    candidates = members.map { SplitCandidate(it.id, it.displayName) } +
-                        dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") },
-                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
-                    currency = currency,
-                    defaultSelectedIds = members.map { it.id }.toSet(),
-                    onSplitChanged = { beneficiarySplit = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                )
-                SplitEditor(
-                    label = "Who chipped in",
-                    candidates = members.map { SplitCandidate(it.id, it.displayName) },
-                    totalAmountMinorUnits = amountMinorUnits ?: 0L,
-                    currency = currency,
-                    defaultSelectedIds = setOfNotNull(selectedMemberId),
-                    onSplitChanged = { contributionSplit = it },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                )
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Who's it for", style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { showBeneficiaryEditor = true }) {
+                        Text(summarizeSplit(effectiveBeneficiaries, beneficiaryCandidates, amountMinorUnits ?: 0L))
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Who chipped in", style = MaterialTheme.typography.labelMedium)
+                    TextButton(onClick = { showContributionEditor = true }) {
+                        Text(summarizeSplit(effectiveContributions, contributionCandidates, amountMinorUnits ?: 0L))
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 enabled = canSubmit,
                 onClick = {
+                    val contributions = effectiveContributions
+                    val paidBy = contributions.maxByOrNull { it.value }?.key ?: payerFallback!!
                     onSubmit(
                         RecordExpenseRequest(
                             categoryId = selectedCategoryId!!,
                             subcategoryId = selectedSubcategoryId,
                             amountMinorUnits = amountMinorUnits!!,
                             currency = currency,
-                            paidByMemberId = selectedMemberId!!,
+                            paidByMemberId = paidBy,
                             occurredAt = occurredAt,
                             note = note,
-                            beneficiarySplit = beneficiarySplit,
-                            contributionSplit = contributionSplit,
+                            beneficiarySplit = SplitModeDto(type = "EXACT", exactAmountsMinorUnits = effectiveBeneficiaries),
+                            contributionSplit = SplitModeDto(type = "EXACT", exactAmountsMinorUnits = contributions),
                         ),
                     )
                 },
@@ -174,4 +170,27 @@ fun AddExpenseDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+
+    if (showBeneficiaryEditor) {
+        SplitEditorDialog(
+            title = "Who's it for",
+            candidates = beneficiaryCandidates,
+            totalAmountMinorUnits = amountMinorUnits ?: 0L,
+            currency = currency,
+            initialAmounts = effectiveBeneficiaries,
+            onDismiss = { showBeneficiaryEditor = false },
+            onSave = { beneficiaryAmounts = it; showBeneficiaryEditor = false },
+        )
+    }
+    if (showContributionEditor) {
+        SplitEditorDialog(
+            title = "Who chipped in",
+            candidates = contributionCandidates,
+            totalAmountMinorUnits = amountMinorUnits ?: 0L,
+            currency = currency,
+            initialAmounts = effectiveContributions,
+            onDismiss = { showContributionEditor = false },
+            onSave = { contributionAmounts = it; showContributionEditor = false },
+        )
+    }
 }
