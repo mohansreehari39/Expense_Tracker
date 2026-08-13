@@ -86,6 +86,35 @@ screenshot risks capturing unrelated windows).
 The Android side is unaffected by any of this — keep testing it the normal
 way, over `adb` against a real phone on the same LAN.
 
+## Version bumps — two locations must move together
+
+Whenever bumping the app version for a release, update **both** of these
+in the same commit — they are not automatically kept in sync and a
+mismatch has already shipped a bug once (v0.1.1: the sidebar and "Check
+for Updates" kept showing "v0.1.0" because only one of these got
+updated):
+
+1. `Implementation/Windows/app/build.gradle.kts` —
+   `compose.desktop.application.nativeDistributions.packageVersion`
+   (controls the installer's own version/filename).
+2. `Implementation/Windows/app/src/main/kotlin/et/windows/Version.kt` —
+   `APP_VERSION` (a hand-maintained constant; Compose Desktop has no
+   AGP-style `BuildConfig` to read `packageVersion` from automatically).
+   This is what the sidebar displays **and** what `UpdateChecker` compares
+   against the latest GitHub release tag — if it's stale, "Check for
+   Updates" will report an update is available forever, even on a
+   fully up-to-date install.
+
+Android has no equivalent second location — `BuildConfig.VERSION_NAME` is
+generated automatically from `versionName` in
+`Implementation/Android/app/build.gradle.kts`, so bumping that one file is
+sufficient there.
+
+Before tagging any release, grep for the old version string across
+`Implementation/Windows/app/build.gradle.kts` and `.../et/windows/
+Version.kt` to confirm neither was missed:
+`grep -rn "<old-version>" Implementation/Windows/app/build.gradle.kts Implementation/Windows/app/src/main/kotlin/et/windows/Version.kt`
+
 ## Branching
 
 Do not create a new git branch to commit changes. Always commit to
