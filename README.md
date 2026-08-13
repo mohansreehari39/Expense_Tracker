@@ -309,6 +309,17 @@ into a dated sub-list below once actually shipped.
       below), so signup is currently the only chance to capture a
       complete profile.
 
+**v0.1.2 (2026-08-13) — shipped:**
+- [x] **Windows still showed "v0.1.0" after installing v0.1.1.**
+      `et.windows.APP_VERSION` is a hand-maintained constant (Compose
+      Desktop has no AGP-style `BuildConfig` to read `packageVersion`
+      from automatically) that didn't get bumped alongside
+      `build.gradle.kts`'s `packageVersion` when v0.1.1 shipped. Beyond
+      the wrong label in the sidebar, this broke "Check for Updates"
+      correctness too — it would have kept reporting "0.1.1 available"
+      forever, even on a fully up-to-date install. Fixed, and both
+      `packageVersion`/`APP_VERSION` bumped together going forward.
+
 **Planned for V1.5, not yet shipped:**
 - [ ] Edit profile on Android (name/age/gender/phone/email) — signup is
       currently the only entry point; the read-only view shipped in

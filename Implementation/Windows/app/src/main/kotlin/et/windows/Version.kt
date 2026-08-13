@@ -8,4 +8,4 @@ package et.windows
  * `et.windows.update.UpdateChecker`, which compares this against the
  * latest published GitHub release tag.
  */
-const val APP_VERSION = "0.1.0"
+const val APP_VERSION = "0.1.2"
