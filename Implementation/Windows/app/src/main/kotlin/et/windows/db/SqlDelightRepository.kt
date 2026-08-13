@@ -116,8 +116,16 @@ class SqlDelightRepository(
         db.schemaQueries.selectMemberById(memberId).executeAsOneOrNull()?.let(::toMember)
     }
 
+    override suspend fun memberByDisplayName(householdId: String, displayName: String): Member? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectMemberByDisplayName(householdId, displayName).executeAsOneOrNull()?.let(::toMember)
+    }
+
+    override suspend fun memberByDeviceId(householdId: String, deviceId: String): Member? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectMemberByDeviceId(householdId, deviceId).executeAsOneOrNull()?.let(::toMember)
+    }
+
     private fun toMember(row: et.windows.db.sql.Member) =
-        Member(row.id, row.householdId, row.displayName, row.deviceId, row.isArchived == 1L)
+        Member(row.id, row.householdId, row.displayName, row.deviceId, row.email, row.phone, row.isArchived == 1L)
 
     override suspend fun saveMember(member: Member): Unit = withContext(Dispatchers.IO) {
         db.schemaQueries.upsertMember(
@@ -125,6 +133,8 @@ class SqlDelightRepository(
             member.householdId,
             member.displayName,
             member.deviceId,
+            member.email,
+            member.phone,
             if (member.isArchived) 1L else 0L,
         )
         logOp(EntityType.MEMBER, member.id, mapOf("displayName" to JsonPrimitive(member.displayName)))
@@ -361,6 +371,10 @@ class SqlDelightRepository(
 
     override suspend fun tripParticipantById(participantId: String): TripParticipant? = withContext(Dispatchers.IO) {
         db.schemaQueries.selectTripParticipantById(participantId).executeAsOneOrNull()?.let(::toTripParticipant)
+    }
+
+    override suspend fun tripParticipantByDisplayName(tripId: String, displayName: String): TripParticipant? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectTripParticipantByDisplayName(tripId, displayName).executeAsOneOrNull()?.let(::toTripParticipant)
     }
 
     private fun toTripParticipant(row: et.windows.db.sql.TripParticipant) =

@@ -68,7 +68,13 @@ class LocalRepository(context: Context) {
 
     suspend fun markPairedServerSyncSuccess(id: String, at: Long) {
         val existing = db.pairedServerDao().get(id) ?: return
-        db.pairedServerDao().upsert(existing.copy(lastSyncSuccessAt = at))
+        db.pairedServerDao().upsert(existing.copy(lastSyncSuccessAt = at, lastSyncError = null))
+    }
+
+    /** Records why the most recent sync attempt against this server failed, so the drawer can show more than a bare "Offline" — see [SyncEngine]. Doesn't touch [PairedServerEntity.lastSyncSuccessAt], so "Offline" staleness is still judged purely by how long ago the last *success* was. */
+    suspend fun markPairedServerSyncError(id: String, message: String) {
+        val existing = db.pairedServerDao().get(id) ?: return
+        db.pairedServerDao().upsert(existing.copy(lastSyncError = message))
     }
 
     /** Manual "Remove Server" (drawer) or automatic forget-on-revoke (SyncEngine, when the server rejects our pairingKey). Linked households/activities are untouched — they just stop syncing since their pairedServerId no longer matches any row here. */

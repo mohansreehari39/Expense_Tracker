@@ -85,7 +85,7 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    label = { Text("Phone number (optional)") },
+                    label = { Text("Phone number") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     modifier = Modifier.fillMaxWidth(),
@@ -95,17 +95,31 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
-                    label = { Text("Email (optional)") },
+                    label = { Text("Email") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // Phone/email are mandatory (unlike age/gender, still
+                // optional) because they're what re-identifies this profile
+                // as the same person if the app is ever reinstalled — see
+                // et.core.domain.AddMember on the Windows side. A bare name
+                // match alone isn't reliable enough to safely merge history
+                // across a rejoin.
+                Text(
+                    "Phone and email are required — they're how a reinstalled app recognizes you as the same person when rejoining a household, instead of splitting your history across two profiles.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
             item {
+                val phoneValid = phone.trim().isNotBlank()
+                val emailValid = email.trim().let { it.isNotBlank() && it.contains("@") }
                 Button(
-                    enabled = name.isNotBlank(),
+                    enabled = name.isNotBlank() && phoneValid && emailValid,
                     onClick = {
-                        onSignedUp(name.trim(), age.toIntOrNull(), gender, phone.trim().ifBlank { null }, email.trim().ifBlank { null })
+                        onSignedUp(name.trim(), age.toIntOrNull(), gender, phone.trim(), email.trim())
                     },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) { Text("Get Started") }

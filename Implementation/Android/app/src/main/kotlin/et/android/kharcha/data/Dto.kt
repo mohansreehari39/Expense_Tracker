@@ -95,7 +95,7 @@ data class AddCategoryRequest(val name: String)
 data class AddSubcategoryRequest(val name: String)
 
 @Serializable
-data class AddMemberRequest(val displayName: String)
+data class AddMemberRequest(val displayName: String, val email: String? = null, val phone: String? = null)
 
 @Serializable
 data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
@@ -241,3 +241,6 @@ data class PairDeviceResponse(val id: String, val label: String, val pairingKey:
 
 @Serializable
 data class HeartbeatDeviceRequest(val pairingKey: String, val label: String)
+
+@Serializable
+data class ClientLogRequest(val label: String, val level: String, val message: String)

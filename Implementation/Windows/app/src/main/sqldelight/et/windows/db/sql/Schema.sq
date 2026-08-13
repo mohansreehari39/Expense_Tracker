@@ -85,17 +85,25 @@ CREATE TABLE member (
     householdId TEXT NOT NULL,
     displayName TEXT NOT NULL,
     deviceId TEXT,
+    email TEXT,
+    phone TEXT,
     isArchived INTEGER NOT NULL DEFAULT 0
 );
 
 upsertMember:
-INSERT OR REPLACE INTO member (id, householdId, displayName, deviceId, isArchived) VALUES (?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO member (id, householdId, displayName, deviceId, email, phone, isArchived) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 selectMembers:
 SELECT * FROM member WHERE householdId = ? AND isArchived = 0;
 
 selectMemberById:
 SELECT * FROM member WHERE id = ?;
+
+selectMemberByDisplayName:
+SELECT * FROM member WHERE householdId = ? AND displayName = ? COLLATE NOCASE LIMIT 1;
+
+selectMemberByDeviceId:
+SELECT * FROM member WHERE householdId = ? AND deviceId = ? LIMIT 1;
 
 CREATE TABLE householdDependent (
     id TEXT NOT NULL PRIMARY KEY,
@@ -238,6 +246,9 @@ SELECT * FROM tripParticipant WHERE tripId = ? AND isArchived = 0;
 
 selectTripParticipantById:
 SELECT * FROM tripParticipant WHERE id = ?;
+
+selectTripParticipantByDisplayName:
+SELECT * FROM tripParticipant WHERE tripId = ? AND displayName = ? COLLATE NOCASE LIMIT 1;
 
 CREATE TABLE tripExpense (
     id TEXT NOT NULL PRIMARY KEY,

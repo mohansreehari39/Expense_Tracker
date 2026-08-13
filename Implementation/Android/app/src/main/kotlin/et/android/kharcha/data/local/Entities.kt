@@ -34,6 +34,8 @@ data class PairedServerEntity(
     val lastSyncSuccessAt: Long? = null,
     /** Server-issued token from the pairing response, re-minted on every "Add Android Device" scan. Every heartbeat presents it; if the server rejects it (device removed, or re-paired elsewhere), this pairing is forgotten locally rather than retried forever. */
     val pairingKey: String = "",
+    /** Reason the most recent sync attempt failed (exception type/message), cleared on the next success — see [et.android.kharcha.data.SyncEngine]. Surfaced in the drawer next to "Offline" so a stuck sync is diagnosable instead of a silent black box. */
+    val lastSyncError: String? = null,
 )
 
 /**

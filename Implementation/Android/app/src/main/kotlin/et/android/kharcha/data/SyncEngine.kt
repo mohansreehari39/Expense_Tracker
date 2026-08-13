@@ -15,6 +15,7 @@ import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.PairedServerEntity
 import et.android.kharcha.data.local.ParticipantEntity
+import et.android.kharcha.data.local.ProfileEntity
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
 import java.util.UUID
@@ -64,7 +65,13 @@ object SyncEngine {
         )
         pullHousehold(repo, api, localId)
         if (repo.myMember(localId) == null) {
-            val remoteMember = api.addMember(remoteHouseholdId, myName)
+            // This device's own deviceId travels as the X-Device-Id header
+            // (already attached by ApiClient); email/phone here are what
+            // let AddMember recognize "it's still me" on a later rejoin
+            // from a different device after this one's deviceId changes
+            // (reinstall/repair) — see AddMember's doc on the server.
+            val profile = repo.currentProfile()
+            val remoteMember = api.addMember(remoteHouseholdId, myName, profile?.email, profile?.phone)
             repo.ensureMyMembership(localId, myName, remoteMember.id)
         }
         return localId
@@ -94,21 +101,55 @@ object SyncEngine {
         return localId
     }
 
-    /** Syncs every linked household/activity across every paired server, best-effort (failures are silently skipped). */
+    /**
+     * Syncs every linked household/activity across every paired server,
+     * best-effort — an individual item failing doesn't block the rest,
+     * but every failure is now logged both locally ([SyncLog]) and, when
+     * a server is reachable at all, pushed there too via
+     * [ApiClient.reportLog] — see that call's doc for why this matters
+     * more than the local file: a real phone in daily use is never
+     * plugged into adb, but the Windows machine holding the database is
+     * always right there. The *last* failure per server is also persisted
+     * to [LocalRepository.markPairedServerSyncError] so it's visible in
+     * the drawer. Previously only a clean device-revocation (410) was
+     * distinguishable from success; anything else (network blip, stale
+     * key returning 401, a server-side exception) failed identically and
+     * invisibly, forever.
+     */
     suspend fun syncAll(context: Context, repo: LocalRepository) {
         val profile = repo.currentProfile() ?: return
         for (server in repo.pairedServers()) {
-            val api = runCatching { resolveApiClient(context, server, repo) }.getOrNull() ?: continue
+            val apiResult = runCatching { resolveApiClient(context, server, repo) }
+            val api = apiResult.getOrNull()
+            if (api == null) {
+                // Nothing reachable at all — can't push this one to the
+                // server (there's no server to push it to); the local
+                // file is the only record of it.
+                val message = "resolve server address: ${apiResult.exceptionOrNull()?.message}"
+                SyncLog.error(context, "[${server.label}] $message", apiResult.exceptionOrNull())
+                repo.markPairedServerSyncError(server.id, message)
+                continue
+            }
             val heartbeat = runCatching { api.heartbeatDevice(profile.deviceId, server.pairingKey, profile.name) }
             if (heartbeat.isSuccess) {
+                SyncLog.info(context, "[${server.label}] heartbeat ok")
                 repo.markPairedServerSyncSuccess(server.id, System.currentTimeMillis())
             } else if (heartbeat.exceptionOrNull().isDeviceRevoked()) {
                 // Server no longer recognizes our pairingKey — it was
                 // removed there (or re-paired from a different scan), so
                 // stop retrying forever and forget it locally too. Any
                 // linked household/activity just goes quiet, not deleted.
+                // Still worth reporting server-side (the log endpoint
+                // needs no valid key) since this is exactly the "why did
+                // this device vanish" question a future you would ask.
+                logAndRecordSyncFailure(context, repo, api, profile, server, "device revoked (410) — forgetting server", heartbeat.exceptionOrNull())
                 repo.forgetPairedServer(server.id)
                 continue
+            } else {
+                logAndRecordSyncFailure(context, repo, api, profile, server, "heartbeat failed", heartbeat.exceptionOrNull())
+                // Fall through anyway — a heartbeat hiccup (e.g. one dropped
+                // packet) shouldn't block push/pull for the rest of this
+                // cycle; each of those below has its own failure handling.
             }
             // Households/activities created on Android start out purely local
             // (LocalRepository.createHousehold/createActivity never link them to
@@ -118,17 +159,36 @@ object SyncEngine {
             // loop below already picks it up for the usual push-pull treatment.
             for (household in repo.unlinkedHouseholds()) {
                 runCatching { pushNewHousehold(repo, api, server.id, household) }
+                    .onFailure { logAndRecordSyncFailure(context, repo, api, profile, server, "push new household '${household.name}'", it) }
             }
             for (activity in repo.unlinkedActivities()) {
                 runCatching { pushNewActivity(repo, api, server.id, activity) }
+                    .onFailure { logAndRecordSyncFailure(context, repo, api, profile, server, "push new activity '${activity.name}'", it) }
             }
             for (household in repo.linkedHouseholds().filter { it.pairedServerId == server.id }) {
                 runCatching { syncHousehold(repo, api, household) }
+                    .onFailure { logAndRecordSyncFailure(context, repo, api, profile, server, "sync household '${household.name}'", it) }
             }
             for (activity in repo.linkedActivities().filter { it.pairedServerId == server.id }) {
                 runCatching { syncActivity(repo, api, activity) }
+                    .onFailure { logAndRecordSyncFailure(context, repo, api, profile, server, "sync activity '${activity.name}'", it) }
             }
         }
+    }
+
+    private suspend fun logAndRecordSyncFailure(
+        context: Context,
+        repo: LocalRepository,
+        api: ApiClient,
+        profile: ProfileEntity,
+        server: PairedServerEntity,
+        what: String,
+        error: Throwable?,
+    ) {
+        val message = "$what: ${error?.message ?: error?.let { it::class.simpleName } ?: "unknown error"}"
+        SyncLog.error(context, "[${server.label}] $message", error)
+        repo.markPairedServerSyncError(server.id, message)
+        runCatching { api.reportLog(profile.deviceId, profile.name, "ERROR", message) }
     }
 
     private fun Throwable?.isDeviceRevoked(): Boolean =
@@ -137,8 +197,16 @@ object SyncEngine {
     private suspend fun pushNewHousehold(repo: LocalRepository, api: ApiClient, pairedServerId: String, household: HouseholdEntity) {
         val created = api.createHousehold(household.name)
         repo.linkHousehold(household.id, pairedServerId, created.id)
+        val profile = repo.currentProfile()
         for (member in repo.members(household.id).filter { it.remoteId == null }) {
-            val remoteMember = runCatching { api.addMember(created.id, member.displayName) }.getOrNull() ?: continue
+            // Only attach this device's own contact details when the member
+            // being pushed IS the profile owner (name match) — everyone
+            // else here is a household member typed in locally (e.g.
+            // "Unnati"), not this device's own identity.
+            val isSelf = profile != null && member.displayName.equals(profile.name, ignoreCase = true)
+            val remoteMember = runCatching {
+                api.addMember(created.id, member.displayName, profile?.email.takeIf { isSelf }, profile?.phone.takeIf { isSelf })
+            }.getOrNull() ?: continue
             repo.markMemberSynced(member, remoteMember.id)
         }
         if (household.defaultBudgetMinorUnits != null || household.settlementEnabled) {
