@@ -88,7 +88,7 @@ compose.desktop {
             // be run on Windows itself. See Implementation/Windows/README.md.
             targetFormats(TargetFormat.Exe)
             packageName = "Kharcha"
-            packageVersion = "0.1.1"
+            packageVersion = "0.1.2"
             description = "Kharcha — household and trip expense tracker"
             vendor = "Kharcha"
 
