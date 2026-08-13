@@ -264,18 +264,75 @@ Android phone and a native Windows install.
 budgets, settlement, subcategories, beneficiary/contributor splits,
 dependents, and the installer have all been verified on a real Android
 phone + a native Windows install. Any further issues found in normal use
-get fixed as regular bugs rather than tracked here; V2 below is the next
-deliberate scope.
+get folded into V1.5 (below) rather than tracked here; V2/V2.5 are the
+next deliberate scope.
+
+### V1.5 — bug-fix track (planned release: end of this month)
+
+Not V2 scope — V1.5 is where bugs found from actually using v0.1.0/v0.1.1
+day-to-day get collected and released together, roughly monthly, as a
+single point release (`0.1.x`). V2 above stays reserved for deliberate
+new features. Add items here as they're found in normal use; they move
+into a dated sub-list below once actually shipped.
+
+**v0.1.1 (2026-08-13) — shipped:**
+- [x] **Fixed a real data-integrity bug found in production**: after
+      removing and rejoining a household member (the normal recovery path
+      after reinstalling/repairing a phone), that person's expense
+      history fragmented across two member ids that displayed as two
+      different people. Root cause: `AddMember`/`AddTripParticipant` only
+      checked *active* members for a name match before minting a new id,
+      so an archived (removed) member with the same name was invisible to
+      the dedup check. Fixed by matching in order of confidence — exact
+      `deviceId`, then name + email/phone, then name alone as a
+      last-resort fallback — and un-archiving/reusing the match instead
+      of always creating a fresh row. `Member` gained `deviceId`/`email`/
+      `phone`, self-healing on every reinstall. Android's signup screen
+      now requires phone + email (previously optional), since they're
+      what makes the stronger matches possible.
+- [x] **Sync failures were completely silent.** `SyncEngine.syncAll`
+      only ever distinguished a clean device-revocation (410) from
+      success — any other failure (network blip, a stale key returning
+      401, a server-side exception) failed identically and invisibly,
+      forever, with no way to tell what was wrong short of re-installing.
+      Every failure is now logged to a local rolling file, surfaced in
+      the Android drawer next to "Offline", **and pushed to the Windows
+      server** (`POST /devices/{id}/logs`, deliberately reachable with no
+      valid pairing key required, since a broken key is exactly the
+      failure this needs to report) — so a real phone in daily use is
+      diagnosable by checking the Windows machine, without ever needing
+      adb.
+- [x] Read-only "My Profile" view added to the Android drawer — signup
+      data was previously write-only, with no way to see it again.
+- [x] Age and gender made mandatory at signup too, alongside phone/email
+      — there's no "edit profile" screen yet (planned for V1.5, see
+      below), so signup is currently the only chance to capture a
+      complete profile.
+
+**Planned for V1.5, not yet shipped:**
+- [ ] Edit profile on Android (name/age/gender/phone/email) — signup is
+      currently the only entry point; the read-only view shipped in
+      v0.1.1 above, editing is the natural next step.
 
 ### V2 — planned
 
-- [ ] **Direct Android-to-Android pairing/sync** — the headline V2
-      feature. Join a household/activity phone-to-phone without going
-      through a Windows server at all. Depends on finishing the *full*
-      two-step asymmetric handshake (`Core/sync/Pairing.kt`/`Design/Core/
-      04-pairing-and-crypto.md`) as its trust foundation — V1 only shipped
-      a scoped-down interim version (single-use pairing secret + required
-      device credentials on every request), not the full design.
+V2 has one focus: **direct Android-to-Android pairing/sync** — join a
+household/activity phone-to-phone without going through a Windows server
+at all. Everything else previously listed under "V2" has moved to V2.5
+below so this milestone stays scoped to that one feature.
+
+- [ ] Direct Android-to-Android pairing/sync. Depends on finishing the
+      *full* two-step asymmetric handshake (`Core/sync/Pairing.kt`/
+      `Design/Core/04-pairing-and-crypto.md`) as its trust foundation — V1
+      only shipped a scoped-down interim version (single-use pairing
+      secret + required device credentials on every request), not the
+      full design.
+
+### V2.5 — planned
+
+Everything else on the roadmap, deliberately deferred behind V2's
+Android-to-Android focus.
+
 - [ ] Weighted split mode UI — `SplitCalculator`/`SplitEditor` support
       Equal/Percentage/Exact today (see the beneficiary/contributor split
       item in V1), `SplitMode.Weighted` exists in Core domain but has no
