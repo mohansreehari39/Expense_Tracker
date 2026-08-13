@@ -65,14 +65,14 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                 OutlinedTextField(
                     value = age,
                     onValueChange = { age = it.filter(Char::isDigit) },
-                    label = { Text("Age (optional)") },
+                    label = { Text("Age") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
-                Text("Gender (optional)", style = MaterialTheme.typography.labelLarge)
+                Text("Gender", style = MaterialTheme.typography.labelLarge)
             }
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,12 +100,14 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                // Phone/email are mandatory (unlike age/gender, still
-                // optional) because they're what re-identifies this profile
-                // as the same person if the app is ever reinstalled — see
-                // et.core.domain.AddMember on the Windows side. A bare name
-                // match alone isn't reliable enough to safely merge history
-                // across a rejoin.
+                // Phone/email are mandatory because they're what
+                // re-identifies this profile as the same person if the app
+                // is ever reinstalled — see et.core.domain.AddMember on the
+                // Windows side. A bare name match alone isn't reliable
+                // enough to safely merge history across a rejoin. Every
+                // field on this screen is required — there's no later "edit
+                // profile" yet (V2), so an incomplete profile has no way to
+                // be filled in afterward.
                 Text(
                     "Phone and email are required — they're how a reinstalled app recognizes you as the same person when rejoining a household, instead of splitting your history across two profiles.",
                     style = MaterialTheme.typography.bodySmall,
@@ -114,10 +116,11 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                 )
             }
             item {
+                val ageValid = (age.toIntOrNull() ?: 0) > 0
                 val phoneValid = phone.trim().isNotBlank()
                 val emailValid = email.trim().let { it.isNotBlank() && it.contains("@") }
                 Button(
-                    enabled = name.isNotBlank() && phoneValid && emailValid,
+                    enabled = name.isNotBlank() && ageValid && gender != null && phoneValid && emailValid,
                     onClick = {
                         onSignedUp(name.trim(), age.toIntOrNull(), gender, phone.trim(), email.trim())
                     },
