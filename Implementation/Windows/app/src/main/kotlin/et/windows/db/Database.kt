@@ -42,6 +42,8 @@ private fun migrateExistingDatabase(url: String) {
                     householdId TEXT NOT NULL,
                     displayName TEXT NOT NULL,
                     deviceId TEXT,
+                    email TEXT,
+                    phone TEXT,
                     isArchived INTEGER NOT NULL DEFAULT 0
                 )
                 """.trimIndent(),
@@ -128,6 +130,8 @@ private fun migrateExistingDatabase(url: String) {
             )
         }
         addColumnIfMissing(connection, "member", "isArchived", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing(connection, "member", "email", "TEXT")
+        addColumnIfMissing(connection, "member", "phone", "TEXT")
         addColumnIfMissing(connection, "tripParticipant", "isArchived", "INTEGER NOT NULL DEFAULT 0")
         // Existing pairedDevice rows from before pairingKey existed get ''
         // (never matches a real client-held key), which is correct: those

@@ -9,8 +9,10 @@ import et.core.domain.WeeklyBudget
 import et.core.domain.evaluateBudget
 import et.core.domain.resolveMonthlyBudget
 import et.core.model.Money
+import et.windows.db.ClientLogStore
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.request.header
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -155,6 +157,16 @@ private fun Route.devices(services: AppServices) {
                 ?: return@post call.respond(HttpStatusCode.Gone)
             call.respond(device.toDto())
         }
+        // Diagnostic log push — see ClientLogStore's doc for why this
+        // exists and why it deliberately skips pairingKey validation (a
+        // stale/invalid key is exactly the kind of failure this needs to
+        // be able to report, so requiring a valid one would defeat it).
+        post("/{id}/logs") {
+            val id = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest)
+            val request = call.receive<ClientLogRequest>()
+            ClientLogStore.append(id, request.label, request.level, request.message)
+            call.respond(HttpStatusCode.NoContent)
+        }
         delete("/{id}") {
             val id = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
             services.pairedDevices.remove(id)
@@ -257,8 +269,9 @@ private fun Route.households(services: AppServices) {
                 post {
                     val householdId = call.parameters["householdId"]!!
                     val request = call.receive<AddMemberRequest>()
+                    val deviceId = call.request.header("X-Device-Id")
                     val member = try {
-                        services.addMember(householdId, request.displayName)
+                        services.addMember(householdId, request.displayName, deviceId, request.email, request.phone)
                     } catch (e: IllegalArgumentException) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid member name")))
                     }

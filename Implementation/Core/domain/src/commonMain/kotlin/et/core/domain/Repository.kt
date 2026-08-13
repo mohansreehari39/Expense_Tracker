@@ -42,6 +42,10 @@ interface Repository {
     suspend fun members(householdId: String): List<Member>
     /** Unlike [members], includes archived ones — needed to look one up before re-saving it. */
     suspend fun memberById(memberId: String): Member?
+    /** Unlike [members], includes archived ones — lets [AddMember] reuse (un-archive) a member who left and is rejoining, by name, instead of always minting a fresh id. */
+    suspend fun memberByDisplayName(householdId: String, displayName: String): Member?
+    /** Unlike [members], includes archived ones — the strongest rejoin signal [AddMember] checks: the exact same physical device joining again. */
+    suspend fun memberByDeviceId(householdId: String, deviceId: String): Member?
     suspend fun saveMember(member: Member)
 
     suspend fun householdDependents(householdId: String): List<HouseholdDependent>
@@ -75,6 +79,8 @@ interface Repository {
     suspend fun tripParticipants(tripId: String): List<TripParticipant>
     /** Unlike [tripParticipants], includes archived ones — needed to look one up before re-saving it. */
     suspend fun tripParticipantById(participantId: String): TripParticipant?
+    /** Unlike [tripParticipants], includes archived ones — lets [AddTripParticipant] reuse (un-archive) a participant who left and is rejoining, by name, instead of always minting a fresh id. */
+    suspend fun tripParticipantByDisplayName(tripId: String, displayName: String): TripParticipant?
     suspend fun saveTripParticipant(participant: TripParticipant)
 
     suspend fun tripExpenses(tripId: String): List<TripExpense>

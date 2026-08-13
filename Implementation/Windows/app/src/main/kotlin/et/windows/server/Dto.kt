@@ -113,8 +113,9 @@ data class AddCategoryRequest(val name: String)
 @Serializable
 data class AddSubcategoryRequest(val name: String)
 
+/** [email]/[phone] are only sent when this member IS the joining device's own profile owner — see [et.android.kharcha.data.SyncEngine] on the Android side. Left null when adding another named member (e.g. typed manually in Windows' household settings, or a locally-created household member being pushed up that isn't this device's own profile). */
 @Serializable
-data class AddMemberRequest(val displayName: String)
+data class AddMemberRequest(val displayName: String, val email: String? = null, val phone: String? = null)
 
 /** [category] is [DependentCategory]'s name (`"PET"`/`"KID"`/`"PARENT"`). */
 @Serializable
@@ -331,3 +332,7 @@ data class RegisterDeviceRequest(val id: String, val label: String, val pairingS
 
 @Serializable
 data class HeartbeatDeviceRequest(val pairingKey: String, val label: String)
+
+/** [level] is a free-form tag ("INFO"/"ERROR") — see ClientLogStore. No pairingKey: this is a best-effort diagnostic sink, deliberately reachable even when a device's own key has gone stale, since that's exactly the failure it needs to be able to report. */
+@Serializable
+data class ClientLogRequest(val label: String, val level: String, val message: String)

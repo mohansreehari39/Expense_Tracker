@@ -22,15 +22,21 @@ data class Household(
 )
 
 /**
- * [deviceId] is null until the member joins via the (not-yet-built) QR
- * device-pairing flow — until then a member is just a name a household
- * expense can be attributed to.
+ * [deviceId] is set once the member joins from an Android device (see
+ * [et.core.domain.AddMember]) — until then a member is just a name a
+ * household expense can be attributed to. [email]/[phone] are the
+ * profile-owner's contact details, carried along on the same join call;
+ * together with [deviceId] they're how [et.core.domain.AddMember]
+ * recognizes "this is the same person rejoining after a reinstall" rather
+ * than minting a fresh, history-fragmenting id.
  */
 data class Member(
     val id: String,
     val householdId: String,
     val displayName: String,
     val deviceId: String? = null,
+    val email: String? = null,
+    val phone: String? = null,
     val isArchived: Boolean = false,
 )
 

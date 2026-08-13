@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -139,9 +140,11 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     val households by repo.observeHouseholds().collectAsState(initial = emptyList())
     val activities by repo.observeActivities().collectAsState(initial = emptyList())
     val pairedServers by repo.observePairedServers().collectAsState(initial = emptyList())
+    val profile by repo.observeProfile().collectAsState(initial = null)
 
     var showCreateHousehold by remember { mutableStateOf(false) }
     var showCreateTrip by remember { mutableStateOf(false) }
+    var showProfile by remember { mutableStateOf(false) }
     var connectingMessage by remember { mutableStateOf<String?>(null) }
     var syncingNow by remember { mutableStateOf(false) }
     var householdSettingsTarget by remember { mutableStateOf<String?>(null) }
@@ -283,6 +286,7 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                     },
                     darkMode = darkMode,
                     onSetDarkMode = onSetDarkMode,
+                    onOpenProfile = { showProfile = true },
                     availableUpdate = availableUpdate,
                     checkingUpdate = checkingUpdate,
                     onCheckForUpdates = {
@@ -427,6 +431,10 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
         ConnectingOverlay(message)
     }
 
+    if (showProfile) {
+        profile?.let { ProfileDialog(profile = it, onDismiss = { showProfile = false }) }
+    }
+
     availableUpdate?.let { update ->
         UpdateAvailableDialog(
             update = update,
@@ -551,6 +559,7 @@ private fun DrawerContent(
     onRemoveServer: (String) -> Unit,
     darkMode: Boolean,
     onSetDarkMode: (Boolean) -> Unit,
+    onOpenProfile: () -> Unit,
     availableUpdate: UpdateInfo?,
     checkingUpdate: Boolean,
     onCheckForUpdates: () -> Unit,
@@ -606,28 +615,42 @@ private fun DrawerContent(
             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                 pairedServers.forEach { server ->
                     val connected = server.lastSyncSuccessAt != null && now - server.lastSyncSuccessAt < CONNECTED_STALE_AFTER_MS
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(
-                            Modifier.size(8.dp).background(
-                                if (connected) androidx.compose.ui.graphics.Color(0xFF2E7D32) else MaterialTheme.colorScheme.outlineVariant,
-                                shape = androidx.compose.foundation.shape.CircleShape,
-                            ),
-                        )
-                        Text(
-                            "${server.label}: ${if (connected) "Connected" else "Offline"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = onForceSync, enabled = !syncingNow, modifier = Modifier.size(28.dp)) {
-                            if (syncingNow) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Sync now", modifier = Modifier.size(16.dp))
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                Modifier.size(8.dp).background(
+                                    if (connected) androidx.compose.ui.graphics.Color(0xFF2E7D32) else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                ),
+                            )
+                            Text(
+                                "${server.label}: ${if (connected) "Connected" else "Offline"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            IconButton(onClick = onForceSync, enabled = !syncingNow, modifier = Modifier.size(28.dp)) {
+                                if (syncingNow) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Sync now", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            IconButton(onClick = { onRemoveServer(server.id) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Filled.Close, contentDescription = "Remove server", modifier = Modifier.size(16.dp))
                             }
                         }
-                        IconButton(onClick = { onRemoveServer(server.id) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Filled.Close, contentDescription = "Remove server", modifier = Modifier.size(16.dp))
+                        // Last failure reason, kept even after a later success
+                        // clears lastSyncSuccessAt staleness — only shown while
+                        // actually reading as Offline, so a healthy connection
+                        // doesn't show yesterday's transient blip forever.
+                        if (!connected && server.lastSyncError != null) {
+                            Text(
+                                server.lastSyncError,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
+                            )
                         }
                     }
                 }
@@ -644,6 +667,13 @@ private fun DrawerContent(
             },
             selected = false,
             onClick = onCheckForUpdates,
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+        NavigationDrawerItem(
+            label = { Text("My Profile") },
+            icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+            selected = false,
+            onClick = onOpenProfile,
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         Row(

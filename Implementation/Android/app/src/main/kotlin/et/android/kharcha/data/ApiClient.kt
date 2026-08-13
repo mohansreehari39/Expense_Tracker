@@ -72,10 +72,10 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
             setBody(AddSubcategoryRequest(name))
         }.body()
 
-    suspend fun addMember(householdId: String, displayName: String): MemberDto =
+    suspend fun addMember(householdId: String, displayName: String, email: String? = null, phone: String? = null): MemberDto =
         client.post("$baseUrl/api/v1/households/$householdId/members") {
             contentType(ContentType.Application.Json)
-            setBody(AddMemberRequest(displayName))
+            setBody(AddMemberRequest(displayName, email, phone))
         }.body()
 
     suspend fun archiveMember(householdId: String, memberId: String) {
@@ -196,6 +196,14 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
         client.post("$baseUrl/api/v1/devices/$id/heartbeat") {
             contentType(ContentType.Application.Json)
             setBody(HeartbeatDeviceRequest(pairingKey, label))
+        }
+    }
+
+    /** Diagnostic sink for [SyncEngine]'s sync failures — no pairingKey involved, unlike every other call here, since a broken key is exactly the kind of failure this needs to still be able to report. See Windows' `ClientLogRequest` doc. */
+    suspend fun reportLog(id: String, label: String, level: String, message: String) {
+        client.post("$baseUrl/api/v1/devices/$id/logs") {
+            contentType(ContentType.Application.Json)
+            setBody(ClientLogRequest(label, level, message))
         }
     }
 }

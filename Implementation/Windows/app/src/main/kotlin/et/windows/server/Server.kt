@@ -44,9 +44,11 @@ private fun Application.expenseTrackerModule(services: AppServices) {
  * Requires a valid, currently-paired device's id + pairingKey (headers
  * `X-Device-Id`/`X-Pairing-Key`) on every api/v1 request except: (a)
  * device pairing itself (`POST /devices` — nothing to present a key for
- * yet, guarded instead by [PairingSession]'s one-time secret) and (b) the
+ * yet, guarded instead by [PairingSession]'s one-time secret), (b) the
  * heartbeat endpoint (has its own key check with its own 410 "revoked"
- * semantics Android depends on). Exempts requests from this same machine
+ * semantics Android depends on), and (c) the diagnostic log-push endpoint
+ * (deliberately reachable with no credentials at all — see
+ * ClientLogRequest's doc for why). Exempts requests from this same machine
  * (the Windows app's own dashboard UI, always loopback) since that's
  * already a trusted local process, not a remote device that could only
  * have gotten in by pairing. Closes the actual gap in v0: every household,
@@ -62,6 +64,7 @@ private fun deviceAuthPlugin(services: AppServices) = createApplicationPlugin("D
         if (remoteHost == "127.0.0.1" || remoteHost == "::1" || remoteHost == "0:0:0:0:0:0:0:1") return@onCall
         if (path == "/api/v1/devices" && request.httpMethod == HttpMethod.Post) return@onCall
         if (path.startsWith("/api/v1/devices/") && path.endsWith("/heartbeat")) return@onCall
+        if (path.startsWith("/api/v1/devices/") && path.endsWith("/logs")) return@onCall
 
         val deviceId = request.header("X-Device-Id")
         val pairingKey = request.header("X-Pairing-Key")
