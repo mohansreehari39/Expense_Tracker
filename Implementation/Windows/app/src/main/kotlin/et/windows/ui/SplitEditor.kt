@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import et.core.model.Money
 
 /**
  * One person a split can be entered against: [id] is a member/dependent/
@@ -114,7 +115,7 @@ fun SplitEditorDialog(
         text = text + (id to newText)
         val parsed = newText.toDoubleOrNull() ?: 0.0
         val minorUnits = when (unit) {
-            SplitUnit.AMOUNT -> (parsed * 100).toLong()
+            SplitUnit.AMOUNT -> Money.parseMinorUnits(newText) ?: 0L
             SplitUnit.PERCENTAGE -> (totalAmountMinorUnits * parsed / 100.0).toLong()
         }
         amounts = amounts + (id to minorUnits)

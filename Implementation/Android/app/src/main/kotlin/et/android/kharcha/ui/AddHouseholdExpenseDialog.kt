@@ -29,6 +29,7 @@ import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.SubcategoryEntity
 import et.android.kharcha.data.equalSplitMinorUnits
+import et.android.kharcha.data.parseAmountMinorUnits
 
 /**
  * Also used to edit an existing expense, when [expenseToEdit] is
@@ -70,7 +71,7 @@ fun AddHouseholdExpenseDialog(
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     var subcategories by remember { mutableStateOf(emptyList<SubcategoryEntity>()) }
     val payerFallback = defaultMemberId ?: members.firstOrNull()?.id
-    val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val amountMinorUnits = parseAmountMinorUnits(amountText)
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && payerFallback != null
 
     val beneficiaryCandidates = members.map { SplitCandidate(it.id, it.displayName) } +

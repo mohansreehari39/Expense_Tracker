@@ -320,6 +320,23 @@ into a dated sub-list below once actually shipped.
       forever, even on a fully up-to-date install. Fixed, and both
       `packageVersion`/`APP_VERSION` bumped together going forward.
 
+**Fixed on `dev/sm/et-android-uses-core` (PR #19), not yet released:**
+- [x] **Trip "Settle" doubled the debt instead of clearing it.**
+      `TripBalances` applied a recorded settlement in the wrong direction
+      (debtor's balance went further negative); now matches
+      `HouseholdBalances`, with a test that settling every suggestion
+      zeroes all balances.
+- [x] **Balances ignored "who's it for" / "who chipped in".** Both Core
+      balance calculations now use the stored beneficiary/contribution
+      rows; a dependent's share is split equally across active members.
+      Android's separate (differently wrong) equal-split folds are gone —
+      it runs the same Core code.
+- [x] **Typed amounts lost a paisa** (e.g. ₹19.99 saved as ₹19.98) — every
+      amount/budget field converted via `(toDouble() * 100).toLong()`.
+      Replaced with Core's exact `Money.parseMinorUnits` on both apps.
+- [x] Android computes budgets/splits with Core instead of hand-ported
+      copies (`BudgetMath.kt` removed).
+
 **Planned for V1.5, not yet shipped:**
 - [ ] Edit profile on Android (name/age/gender/phone/email) — signup is
       currently the only entry point; the read-only view shipped in

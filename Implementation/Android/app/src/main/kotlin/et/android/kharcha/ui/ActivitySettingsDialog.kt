@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.ParticipantEntity
+import et.android.kharcha.data.parseAmountMinorUnits
 
 /** Rename/re-budget an existing activity and remove participants, matching Windows' Activity Settings dialog. Adding participants remains Windows-only for now. */
 @Composable
@@ -44,7 +45,7 @@ fun ActivitySettingsDialog(
     var budgetText by remember {
         mutableStateOf((currentBudgetMinorUnits / 100.0).let { v -> if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString() })
     }
-    val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val budgetMinorUnits = parseAmountMinorUnits(budgetText)
     val canSubmit = name.isNotBlank() && budgetMinorUnits != null && budgetMinorUnits > 0
     var participantsExpanded by remember { mutableStateOf(true) }
 

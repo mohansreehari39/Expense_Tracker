@@ -17,6 +17,8 @@ import et.android.kharcha.data.local.PairedServerEntity
 import et.android.kharcha.data.local.ParticipantEntity
 import et.android.kharcha.data.local.ProfileEntity
 import et.android.kharcha.data.local.SubcategoryEntity
+import et.core.domain.HouseholdBalances
+import et.core.domain.TripBalances
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -120,19 +122,26 @@ class LocalRepository(context: Context) {
         )
     }
 
-    /** Net balance per member: what they paid minus their equal share — matches Core's HouseholdBalances for SplitMode.Equal. Only meaningful when the household has opted in via [HouseholdEntity.settlementEnabled]. */
+    /**
+     * Net balance per member (positive = owed), computed on-device by Core's
+     * [HouseholdBalances] — the same calculation the server runs — from the
+     * stored "who's it for" / "who chipped in" rows. Settlements are only
+     * recorded on the server, so this local figure ignores them; prefer the
+     * server's balances when reachable (see [BalanceLoader]). Only
+     * meaningful when the household has opted in via
+     * [HouseholdEntity.settlementEnabled].
+     */
     suspend fun householdBalances(householdId: String): Map<String, Long> {
-        val members = members(householdId)
+        val household = household(householdId) ?: return emptyMap()
         val expenses = householdExpenses(householdId)
-        val balances = members.associate { it.id to 0L }.toMutableMap()
-        for (expense in expenses) {
-            balances[expense.paidByMemberId] = (balances[expense.paidByMemberId] ?: 0L) + expense.amountMinorUnits
-            if (members.isNotEmpty()) {
-                val share = expense.amountMinorUnits / members.size
-                for (member in members) balances[member.id] = (balances[member.id] ?: 0L) - share
-            }
-        }
-        return balances
+        return HouseholdBalances.netBalances(
+            memberIds = members(householdId).filter { !it.isArchived }.map { it.id },
+            expenses = expenses.map { it.toCore() },
+            beneficiaries = expenses.flatMap { householdExpenseBeneficiaries(it.id) }.map { it.toCore() },
+            contributions = expenses.flatMap { householdExpenseContributions(it.id) }.map { it.toCore() },
+            settlements = emptyList(),
+            currency = household.currency,
+        ).mapValues { it.value.minorUnits }
     }
 
     /** Rename/re-budget an activity from Android — mirrors Windows' Activity Settings dialog. */
@@ -556,20 +565,17 @@ class LocalRepository(context: Context) {
         db.activityExpenseDao().upsertAll(expenses.filterNot { it.id in keepLocalIds })
     }
 
-    /** Net balance per participant: what they paid minus their equal share — matches Core's TripBalances for SplitMode.Equal. */
+    /** Activity counterpart of [householdBalances] — Core's [TripBalances] over the stored splits/contributions, settlement-blind. */
     suspend fun activityBalances(activityId: String): Map<String, Long> {
-        val participants = participants(activityId)
+        val activity = activity(activityId) ?: return emptyMap()
         val expenses = activityExpenses(activityId)
-        val balances = participants.associate { it.id to 0L }.toMutableMap()
-        for (expense in expenses) {
-            balances[expense.paidByParticipantId] = (balances[expense.paidByParticipantId] ?: 0L) + expense.amountMinorUnits
-            if (participants.isNotEmpty()) {
-                val share = expense.amountMinorUnits / participants.size
-                for (participant in participants) {
-                    balances[participant.id] = (balances[participant.id] ?: 0L) - share
-                }
-            }
-        }
-        return balances
+        return TripBalances.netBalances(
+            participantIds = participants(activityId).filter { !it.isArchived }.map { it.id },
+            expenses = expenses.map { it.toCore() },
+            splits = expenses.flatMap { activityExpenseBeneficiaries(it.id) }.map { it.toCore() },
+            contributions = expenses.flatMap { activityExpenseContributions(it.id) }.map { it.toCore() },
+            settlements = emptyList(),
+            currency = activity.currency,
+        ).mapValues { it.value.minorUnits }
     }
 }

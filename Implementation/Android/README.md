@@ -67,8 +67,8 @@ sync (via a paired server) is implemented.
   — plus the expense list (add/edit/delete, date picker, category dropdown,
   paid-by as tappable chips). All reads/writes go through `LocalRepository`.
 - **Activity screen** (`ActivityScreen.kt`): overall budget bar, your
-  balance and everyone's balances (computed via `LocalRepository.activityBalances`,
-  equal-split), expense list (add/edit/delete).
+  balance and everyone's balances (via `data/BalanceLoader.kt`, see below),
+  expense list (add/edit/delete).
 
 ## Local persistence (Room)
 
@@ -128,9 +128,19 @@ that JVM variant directly, so no `androidTarget()` or Android Gradle
 Plugin setup is needed inside Core. Computation logic belongs in Core, not
 here — never re-implement budget/split/balance math on Android.
 
+Balances ("who owes whom") are computed by Core's `TripBalances`/
+`HouseholdBalances` from the stored "who's it for" / "who chipped in"
+rows — the same code the server runs. `data/BalanceLoader.kt` is the only
+place that decides which figures a screen shows: the server's when
+reachable (they include recorded settlements, which are only stored on the
+server), otherwise the on-device Core figure. The landing page and the
+household/activity screens all go through it, so they can't disagree.
+
+Typed amounts are converted with Core's `Money.parseMinorUnits` (via
+`parseAmountMinorUnits`), never through a `Double`.
+
 Still hand-copied for now: the REST DTOs (`data/Dto.kt`, mirrored from
-`Implementation/Windows/.../server/Dto.kt`) and the local balance folds in
-`LocalRepository` — both are being moved into Core next.
+`Implementation/Windows/.../server/Dto.kt`) — being moved into Core next.
 
 ## Why the QR isn't the real pairing handshake yet
 

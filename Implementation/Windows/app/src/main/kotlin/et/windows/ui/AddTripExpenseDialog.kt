@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import et.windows.server.SplitModeDto
 import et.windows.server.TripExpenseDto
 import et.windows.server.TripParticipantDto
+import et.core.model.Money
 
 /**
  * No separate "Paid by" chooser — "Who chipped in" defaults to 100% on
@@ -48,7 +49,7 @@ fun AddTripExpenseDialog(
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
     val payerFallback = expenseToEdit?.paidByParticipantId ?: participants.firstOrNull()?.id
-    val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val amountMinorUnits = Money.parseMinorUnits(amountText)
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && payerFallback != null
 
     val candidates = participants.map { SplitCandidate(it.id, it.displayName) }

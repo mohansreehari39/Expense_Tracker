@@ -42,6 +42,7 @@ import et.android.kharcha.data.SuggestedTransferDto
 import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
+import et.android.kharcha.data.BalanceLoader
 import et.core.domain.DateRange
 import et.core.domain.WeeklyBudget
 import et.core.domain.evaluateBudget
@@ -83,33 +84,9 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
 
     suspend fun refreshBalances() {
         val household = currentHousehold
-        if (household == null || !household.settlementEnabled) {
-            balances = emptyMap()
-            suggestedSettlements = emptyList()
-            return
-        }
-        val pairedServerId = household.pairedServerId
-        val remoteId = household.remoteId
-        val response = if (pairedServerId != null && remoteId != null) {
-            val server = repo.pairedServer(pairedServerId)
-            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-            api?.let { runCatching { it.household(remoteId) }.getOrNull() }
-        } else {
-            null
-        }
-        if (response != null) {
-            // response.balances is keyed by remote member id (the server has no concept of our local ids) — remap to local ids so this map lines up with the same `members` list the unlinked fallback below keys against.
-            val currentMembers = repo.members(householdId)
-            balances = response.balances.mapNotNull { (remoteMemberId, money) ->
-                val localId = currentMembers.find { it.remoteId == remoteMemberId }?.id ?: return@mapNotNull null
-                localId to money.minorUnits
-            }.toMap()
-            suggestedSettlements = response.suggestedSettlements
-        } else {
-            // Unlinked household, or the server couldn't be reached — fall back to a local, settlement-blind fold.
-            balances = repo.householdBalances(householdId)
-            suggestedSettlements = emptyList()
-        }
+        val view = household?.let { BalanceLoader(context, repo).forHousehold(it) }
+        balances = view?.balances ?: emptyMap()
+        suggestedSettlements = view?.suggestions ?: emptyList()
     }
 
     LaunchedEffect(householdId, members, expenses, currentHousehold?.settlementEnabled, currentHousehold?.pairedServerId) {
