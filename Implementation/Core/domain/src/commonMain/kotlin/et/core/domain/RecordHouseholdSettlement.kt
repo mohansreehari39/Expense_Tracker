@@ -21,6 +21,7 @@ class RecordHouseholdSettlement(
         settledAt: Long,
         note: String = "",
     ): HouseholdSettlement {
+        require(amount.minorUnits > 0) { "settlement amount must be more than zero" }
         val settlement = HouseholdSettlement(
             id = idGenerator.newId(),
             householdId = householdId,

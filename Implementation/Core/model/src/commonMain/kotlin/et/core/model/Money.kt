@@ -46,5 +46,20 @@ data class Money(val minorUnits: Long, val currency: String) {
             val roundUp = if (padded[decimals] >= '5') 1L else 0L
             return whole * scale + fraction + roundUp
         }
+
+        /**
+         * The editable-text inverse of [parseMinorUnits]: 25000 → "250",
+         * 25050 → "250.50", 5 → "0.05". No currency symbol or grouping, so
+         * it can pre-fill an amount field and parse back to the same value.
+         */
+        fun toPlainString(minorUnits: Long, decimals: Int = 2): String {
+            val sign = if (minorUnits < 0) "-" else ""
+            val abs = kotlin.math.abs(minorUnits)
+            var scale = 1L
+            repeat(decimals) { scale *= 10 }
+            val whole = abs / scale
+            val fraction = abs % scale
+            return if (fraction == 0L) "$sign$whole" else "$sign$whole.${fraction.toString().padStart(decimals, '0')}"
+        }
     }
 }

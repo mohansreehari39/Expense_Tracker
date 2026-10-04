@@ -336,6 +336,11 @@ into a dated sub-list below once actually shipped.
       Replaced with Core's exact `Money.parseMinorUnits` on both apps.
 - [x] Android computes budgets/splits with Core instead of hand-ported
       copies (`BudgetMath.kt` removed).
+- [x] **Settle accepts a custom amount** (partial payments), trips and
+      households, both apps. The "Record payment" dialog opens pre-filled
+      with the full amount owed; any amount above zero and up to what's
+      owed is allowed (Core `SettlementAmount`), and the remainder stays
+      owing. The server rejects zero/negative settlements.
 
 **Planned for V1.5, not yet shipped:**
 - [ ] Edit profile on Android (name/age/gender/phone/email) — signup is

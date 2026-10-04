@@ -21,6 +21,7 @@ class SettleUp(
         settledAt: Long,
         note: String = "",
     ): Settlement {
+        require(amount.minorUnits > 0) { "settlement amount must be more than zero" }
         val settlement = Settlement(
             id = idGenerator.newId(),
             tripId = tripId,

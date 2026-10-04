@@ -319,13 +319,17 @@ private fun Route.households(services: AppServices) {
                     val household = services.repository.household(householdId)
                         ?: return@post call.respond(HttpStatusCode.NotFound)
                     val request = call.receive<RecordHouseholdSettlementRequest>()
-                    services.recordHouseholdSettlement(
-                        householdId = householdId,
-                        fromMemberId = request.fromMemberId,
-                        toMemberId = request.toMemberId,
-                        amount = Money(request.amountMinorUnits, request.currency),
-                        settledAt = Clock.System.now().toEpochMilliseconds(),
-                    )
+                    try {
+                        services.recordHouseholdSettlement(
+                            householdId = householdId,
+                            fromMemberId = request.fromMemberId,
+                            toMemberId = request.toMemberId,
+                            amount = Money(request.amountMinorUnits, request.currency),
+                            settledAt = Clock.System.now().toEpochMilliseconds(),
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid settlement")))
+                    }
                     val (balances, suggestions) = householdBalances(services, household)
                     call.respond(HttpStatusCode.Created, HouseholdSettlementsResponse(balances, suggestions))
                 }
@@ -655,13 +659,17 @@ private fun Route.trips(services: AppServices) {
                     val tripId = call.parameters["tripId"]!!
                     val trip = services.repository.trip(tripId) ?: return@post call.respond(HttpStatusCode.NotFound)
                     val request = call.receive<RecordTripSettlementRequest>()
-                    services.settleUp(
-                        tripId = tripId,
-                        fromParticipantId = request.fromParticipantId,
-                        toParticipantId = request.toParticipantId,
-                        amount = Money(request.amountMinorUnits, request.currency),
-                        settledAt = Clock.System.now().toEpochMilliseconds(),
-                    )
+                    try {
+                        services.settleUp(
+                            tripId = tripId,
+                            fromParticipantId = request.fromParticipantId,
+                            toParticipantId = request.toParticipantId,
+                            amount = Money(request.amountMinorUnits, request.currency),
+                            settledAt = Clock.System.now().toEpochMilliseconds(),
+                        )
+                    } catch (e: IllegalArgumentException) {
+                        return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid settlement")))
+                    }
                     val participants = services.repository.tripParticipants(tripId)
                     val expenses = services.repository.tripExpenses(tripId)
                     val splits = expenses.flatMap { services.repository.expenseSplits(it.id) }

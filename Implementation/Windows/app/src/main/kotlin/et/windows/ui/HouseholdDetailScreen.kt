@@ -34,6 +34,7 @@ import et.windows.server.MonthBudgetResponse
 import et.windows.server.MoneyDto
 import et.windows.server.RecordHouseholdSettlementRequest
 import et.windows.server.SetBudgetRequest
+import et.windows.server.SuggestedTransferDto
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.format.TextStyle
@@ -70,6 +71,28 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
         } catch (e: Exception) {
             error = e.message ?: e::class.simpleName
         }
+    }
+
+    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
+
+    settleTarget?.let { s ->
+        SettleDialog(
+            fromName = members.find { it.id == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
+            toName = members.find { it.id == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            owed = s.amount,
+            onDismiss = { settleTarget = null },
+            onConfirm = { amountMinorUnits ->
+                settleTarget = null
+                scope.launch {
+                    try {
+                        api.recordHouseholdSettlement(householdId, RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency))
+                    } catch (e: Exception) {
+                        error = e.message ?: e::class.simpleName
+                    }
+                    reload()
+                }
+            },
+        )
     }
 
     LaunchedEffect(householdId, refreshSignal) { reload() }
@@ -154,15 +177,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text("$fromName → $toName: ${formatMoney(s.amount)}")
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                api.recordHouseholdSettlement(
-                                                    householdId,
-                                                    RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
-                                                )
-                                                reload()
-                                            }
-                                        }) { Text("Settle") }
+                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
                             }
