@@ -3,7 +3,6 @@ package et.android.kharcha.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import et.core.domain.BudgetStatus
-import et.android.kharcha.data.MoneyDto
 import et.android.kharcha.ui.theme.Amber
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
@@ -26,7 +25,6 @@ fun formatMoney(minorUnits: Long, currency: String): String {
     return "$symbol${String.format(Locale.getDefault(), pattern, amount)}"
 }
 
-fun formatMoney(money: MoneyDto): String = formatMoney(money.minorUnits, money.currency)
 
 @Composable
 fun statusColor(status: BudgetStatus): Color = when (status) {

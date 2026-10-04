@@ -1,5 +1,6 @@
 package et.android.kharcha.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -52,10 +53,18 @@ data class HouseholdEntity(
     val pairedServerId: String?,
     val remoteId: String?,
     val createdAt: Long,
-    /** Set when the name/budget was edited locally on Android; cleared once SyncEngine has pushed it to a linked server. Irrelevant for a purely-local household. */
+    /** No longer used (see [dirty]); kept because dropping a column would mean rebuilding the table. */
     val pendingConfigSync: Boolean = false,
-    /** Opt-in per-member balance tracking (equal-split net balance, "who owes whom") — mirrors the trip/activity balance feature. See LocalRepository.householdBalances. */
+    /** Opt-in per-member balance tracking ("who owes whom") — mirrors the trip/activity balance feature. See LocalRepository.householdBalances. */
     val settlementEnabled: Boolean = false,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    /** Server sequence number this household has pulled up to; -1 = never pulled. */
+    @ColumnInfo(defaultValue = "-1") val syncCursor: Long = -1,
 )
 
 @Entity(tableName = "category")
@@ -65,6 +74,13 @@ data class CategoryEntity(
     val name: String,
     val isArchived: Boolean = false,
     val remoteId: String? = null,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val icon: String = "",
 )
 
 @Entity(tableName = "subcategory")
@@ -74,6 +90,12 @@ data class SubcategoryEntity(
     val name: String,
     val isArchived: Boolean = false,
     val remoteId: String? = null,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
 )
 
 /** [isMe] marks which member row is this device's own identity within the household. */
@@ -85,6 +107,16 @@ data class MemberEntity(
     val isArchived: Boolean = false,
     val isMe: Boolean = false,
     val remoteId: String? = null,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    /** The phone that joined as this member, plus contact details — how a rejoin after a reinstall finds the same person. */
+    val deviceId: String? = null,
+    val email: String? = null,
+    val phone: String? = null,
 )
 
 /** Pet/kid/parent — a household beneficiary that never chips in. [category] is one of "PET"/"KID"/"PARENT". */
@@ -96,6 +128,12 @@ data class HouseholdDependentEntity(
     val category: String,
     val isArchived: Boolean = false,
     val remoteId: String? = null,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
 )
 
 /**
@@ -125,9 +163,9 @@ data class HouseholdExpenseContributionEntity(
 )
 
 /**
- * [pendingSync]/[pendingDelete] track offline edits still waiting to reach
- * a paired server — see [et.android.kharcha.data.SyncEngine]. Irrelevant
- * for a household that was never joined to a server.
+ * [pendingSync]/[pendingDelete] are from before record sync and no longer
+ * used (kept because dropping a column would mean rebuilding the table);
+ * [dirty] and [isDeleted] replaced them.
  */
 @Entity(tableName = "household_expense")
 data class HouseholdExpenseEntity(
@@ -143,6 +181,14 @@ data class HouseholdExpenseEntity(
     val remoteId: String?,
     val pendingSync: Boolean = false,
     val pendingDelete: Boolean = false,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val createdByDeviceId: String = "",
+    @ColumnInfo(defaultValue = "0") val createdAt: Long = 0,
 )
 
 @Entity(tableName = "activity")
@@ -155,8 +201,19 @@ data class ActivityEntity(
     val pairedServerId: String?,
     val remoteId: String?,
     val createdAt: Long,
-    /** Set when the name/budget was edited locally on Android; cleared once SyncEngine has pushed it to a linked server. Irrelevant for a purely-local activity. */
+    /** No longer used (see [dirty]); kept because dropping a column would mean rebuilding the table. */
     val pendingConfigSync: Boolean = false,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    /** Server sequence number this activity has pulled up to; -1 = never pulled. */
+    @ColumnInfo(defaultValue = "-1") val syncCursor: Long = -1,
+    val endDate: Long? = null,
+    @ColumnInfo(defaultValue = "''") val createdBy: String = "",
+    @ColumnInfo(defaultValue = "0") val isClosed: Boolean = false,
 )
 
 @Entity(tableName = "participant")
@@ -167,6 +224,15 @@ data class ParticipantEntity(
     val isArchived: Boolean = false,
     val isMe: Boolean = false,
     val remoteId: String? = null,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    val memberId: String? = null,
+    /** The phone that joined as this participant — how a rejoin after a reinstall finds them even under a new name. */
+    val deviceId: String? = null,
 )
 
 @Entity(tableName = "activity_expense")
@@ -181,6 +247,14 @@ data class ActivityExpenseEntity(
     val remoteId: String?,
     val pendingSync: Boolean = false,
     val pendingDelete: Boolean = false,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+    val categoryId: String? = null,
+    val subcategoryId: String? = null,
 )
 
 /** "Who all is included in the expense" for an [ActivityExpenseEntity] — the trip equivalent of [HouseholdExpenseBeneficiaryEntity]. Always resynced wholesale alongside its parent expense. */
@@ -201,4 +275,59 @@ data class ActivityExpenseContributionEntity(
     val participantId: String,
     val amountMinorUnits: Long,
     val currency: String,
+)
+
+/** A recorded settle-up payment in a household (debtor [fromMemberId] paid creditor [toMemberId]). */
+@Entity(tableName = "household_settlement")
+data class HouseholdSettlementEntity(
+    @PrimaryKey val id: String,
+    val householdId: String,
+    val fromMemberId: String,
+    val toMemberId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+    val settledAt: Long,
+    val note: String = "",
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+)
+
+/** A recorded settle-up payment in an activity (debtor [fromParticipantId] paid creditor [toParticipantId]). */
+@Entity(tableName = "activity_settlement")
+data class ActivitySettlementEntity(
+    @PrimaryKey val id: String,
+    val activityId: String,
+    val fromParticipantId: String,
+    val toParticipantId: String,
+    val amountMinorUnits: Long,
+    val currency: String,
+    val settledAt: Long,
+    val note: String = "",
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
+)
+
+/** A one-month override of a household's default budget (set from the Windows app). */
+@Entity(tableName = "monthly_budget")
+data class MonthlyBudgetEntity(
+    @PrimaryKey val id: String,
+    val householdId: String,
+    val year: Int,
+    val month: Int,
+    val totalMinorUnits: Long,
+    val currency: String,
+    /** Hlc stamp of the last change ("" = before stamps existed, the oldest). The later stamp wins on sync. */
+    @ColumnInfo(defaultValue = "''") val updatedAt: String = "",
+    /** Tombstone: deleted, kept so other devices learn about the delete. Hidden from the app's screens. */
+    @ColumnInfo(defaultValue = "0") val isDeleted: Boolean = false,
+    /** Changed here and not yet confirmed by the server — the only rows a sync pushes. */
+    @ColumnInfo(defaultValue = "0") val dirty: Boolean = false,
 )

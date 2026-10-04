@@ -225,9 +225,9 @@ private fun MainScreen(repo: LocalRepository, initialName: String, darkMode: Boo
                 }
                 val api = ApiClient(baseUrl, deviceId, pairingKey)
                 val result = when (invite.kind) {
-                    "household" -> runCatching { SyncEngine.joinHousehold(repo, api, pairedServerId, invite.id, myName) }
+                    "household" -> runCatching { SyncEngine.joinHousehold(context, repo, api, pairedServerId, invite.id, myName) }
                         .onSuccess { navController.navigate("household/$it") { popUpTo(ROUTE_HOME); launchSingleTop = true } }
-                    "activity" -> runCatching { SyncEngine.joinActivity(repo, api, pairedServerId, invite.id, myName) }
+                    "activity" -> runCatching { SyncEngine.joinActivity(context, repo, api, pairedServerId, invite.id, myName) }
                         .onSuccess { navController.navigate("activity/$it") { popUpTo(ROUTE_HOME); launchSingleTop = true } }
                     else -> Result.failure(IllegalArgumentException("Unexpected QR kind: ${invite.kind}"))
                 }
@@ -478,13 +478,13 @@ private fun MainScreen(repo: LocalRepository, initialName: String, darkMode: Boo
                 },
                 onRemoveMember = { memberId ->
                     scope.launch {
-                        removeMemberEverywhere(context, repo, household, memberId)
+                        repo.archiveMember(memberId)
                     }
                 },
                 onAddDependent = { name, category -> repo.addDependent(id, name, category) },
                 onRemoveDependent = { dependentId ->
                     scope.launch {
-                        removeDependentEverywhere(context, repo, household, dependentId)
+                        repo.archiveDependent(dependentId)
                     }
                 },
             )
@@ -509,7 +509,7 @@ private fun MainScreen(repo: LocalRepository, initialName: String, darkMode: Boo
                 },
                 onRemoveParticipant = { participantId ->
                     scope.launch {
-                        removeParticipantEverywhere(context, repo, activity, participantId)
+                        repo.archiveParticipant(participantId)
                     }
                 },
             )
@@ -551,52 +551,6 @@ private fun MainScreen(repo: LocalRepository, initialName: String, darkMode: Boo
             },
         )
     }
-}
-
-/** Best-effort remote archive (if this household is linked and the member has already synced) followed by an unconditional local removal — mirrors Windows' immediate "✕ Remove" behavior rather than queuing an offline pending-delete. */
-private suspend fun removeMemberEverywhere(context: android.content.Context, repo: LocalRepository, household: HouseholdEntity, memberId: String) {
-    val member = repo.members(household.id).find { it.id == memberId }
-    val remoteHouseholdId = household.remoteId
-    val remoteMemberId = member?.remoteId
-    val pairedServerId = household.pairedServerId
-    if (remoteHouseholdId != null && remoteMemberId != null && pairedServerId != null) {
-        val server = repo.pairedServer(pairedServerId)
-        if (server != null) {
-            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
-            api?.let { runCatching { it.archiveMember(remoteHouseholdId, remoteMemberId) } }
-        }
-    }
-    repo.hardDeleteMember(memberId)
-}
-
-private suspend fun removeDependentEverywhere(context: android.content.Context, repo: LocalRepository, household: HouseholdEntity, dependentId: String) {
-    val dependent = repo.dependents(household.id).find { it.id == dependentId }
-    val remoteHouseholdId = household.remoteId
-    val remoteDependentId = dependent?.remoteId
-    val pairedServerId = household.pairedServerId
-    if (remoteHouseholdId != null && remoteDependentId != null && pairedServerId != null) {
-        val server = repo.pairedServer(pairedServerId)
-        if (server != null) {
-            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
-            api?.let { runCatching { it.archiveHouseholdDependent(remoteHouseholdId, remoteDependentId) } }
-        }
-    }
-    repo.hardDeleteDependent(dependentId)
-}
-
-private suspend fun removeParticipantEverywhere(context: android.content.Context, repo: LocalRepository, activity: ActivityEntity, participantId: String) {
-    val participant = repo.participants(activity.id).find { it.id == participantId }
-    val remoteActivityId = activity.remoteId
-    val remoteParticipantId = participant?.remoteId
-    val pairedServerId = activity.pairedServerId
-    if (remoteActivityId != null && remoteParticipantId != null && pairedServerId != null) {
-        val server = repo.pairedServer(pairedServerId)
-        if (server != null) {
-            val api = runCatching { SyncEngine.resolveApiClient(context, server, repo) }.getOrNull()
-            api?.let { runCatching { it.archiveTripParticipant(remoteActivityId, remoteParticipantId) } }
-        }
-    }
-    repo.hardDeleteParticipant(participantId)
 }
 
 /** Blocks interaction with the rest of the screen while a scan result is being acted on, so the user can't navigate away mid-join/pair without knowing whether it succeeded. */

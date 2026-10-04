@@ -15,6 +15,15 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import io.ktor.http.content.TextContent
+import io.ktor.client.statement.bodyAsText
+import io.ktor.client.request.parameter
+import et.core.api.SyncRecord
+import et.core.api.SyncJson
+import et.core.api.ScopeKind
+import et.core.api.PushResponse
+import et.core.api.PushRequest
+import et.core.api.PullResponse
 
 /**
  * Talks to a Windows app's REST server over the LAN — same API surface
@@ -41,36 +50,26 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
         }
     }
 
+    // -- Record sync (et.core.api.SyncRecords) --------------------------------
+    // Encoded with the shared SyncJson rather than this client's own Json, so both
+    // sides agree on the record types; sent as raw text to bypass content negotiation.
+
+    suspend fun pushRecords(records: List<SyncRecord>): PushResponse {
+        val body = SyncJson.encodeToString(PushRequest.serializer(), PushRequest(records))
+        val text = client.post("$baseUrl/api/v1/sync/push") { setBody(TextContent(body, ContentType.Application.Json)) }.bodyAsText()
+        return SyncJson.decodeFromString(PushResponse.serializer(), text)
+    }
+
+    suspend fun pullRecords(kind: ScopeKind, id: String, since: Long): PullResponse {
+        val text = client.get("$baseUrl/api/v1/sync/pull") {
+            parameter("kind", kind.name)
+            parameter("id", id)
+            parameter("since", since)
+        }.bodyAsText()
+        return SyncJson.decodeFromString(PullResponse.serializer(), text)
+    }
+
     // -- Households -----------------------------------------------------------
-
-    suspend fun households(): List<HouseholdDto> = client.get("$baseUrl/api/v1/households").body()
-
-    suspend fun createHousehold(name: String): HouseholdDto =
-        client.post("$baseUrl/api/v1/households") {
-            contentType(ContentType.Application.Json)
-            setBody(CreateHouseholdRequest(name))
-        }.body()
-
-    suspend fun household(householdId: String): HouseholdResponse =
-        client.get("$baseUrl/api/v1/households/$householdId").body()
-
-    suspend fun updateHousehold(householdId: String, request: UpdateHouseholdRequest): HouseholdDto =
-        client.put("$baseUrl/api/v1/households/$householdId") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun addCategory(householdId: String, name: String): CategoryDto =
-        client.post("$baseUrl/api/v1/households/$householdId/categories") {
-            contentType(ContentType.Application.Json)
-            setBody(AddCategoryRequest(name))
-        }.body()
-
-    suspend fun addSubcategory(householdId: String, categoryId: String, name: String): SubcategoryDto =
-        client.post("$baseUrl/api/v1/households/$householdId/categories/$categoryId/subcategories") {
-            contentType(ContentType.Application.Json)
-            setBody(AddSubcategoryRequest(name))
-        }.body()
 
     suspend fun addMember(householdId: String, displayName: String, email: String? = null, phone: String? = null): MemberDto =
         client.post("$baseUrl/api/v1/households/$householdId/members") {
@@ -78,104 +77,13 @@ class ApiClient(private val baseUrl: String, private val deviceId: String? = nul
             setBody(AddMemberRequest(displayName, email, phone))
         }.body()
 
-    suspend fun archiveMember(householdId: String, memberId: String) {
-        client.delete("$baseUrl/api/v1/households/$householdId/members/$memberId")
-    }
-
-    suspend fun addHouseholdDependent(householdId: String, name: String, category: String): HouseholdDependentDto =
-        client.post("$baseUrl/api/v1/households/$householdId/dependents") {
-            contentType(ContentType.Application.Json)
-            setBody(AddHouseholdDependentRequest(name, category))
-        }.body()
-
-    suspend fun archiveHouseholdDependent(householdId: String, dependentId: String) {
-        client.delete("$baseUrl/api/v1/households/$householdId/dependents/$dependentId")
-    }
-
-    suspend fun recordHouseholdSettlement(householdId: String, request: RecordHouseholdSettlementRequest): HouseholdSettlementsResponse =
-        client.post("$baseUrl/api/v1/households/$householdId/settlements") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
-        client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
-
-    suspend fun setBudget(householdId: String, request: SetBudgetRequest) {
-        client.post("$baseUrl/api/v1/households/$householdId/budgets") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }
-    }
-
-    suspend fun expenses(householdId: String, year: Int, month: Int): List<HouseholdExpenseDto> =
-        client.get("$baseUrl/api/v1/households/$householdId/expenses?year=$year&month=$month").body()
-
-    suspend fun recordExpense(householdId: String, request: RecordExpenseRequest): RecordExpenseResponse =
-        client.post("$baseUrl/api/v1/households/$householdId/expenses") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun updateExpense(householdId: String, expenseId: String, request: RecordExpenseRequest): RecordExpenseResponse =
-        client.put("$baseUrl/api/v1/households/$householdId/expenses/$expenseId") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun deleteExpense(householdId: String, expenseId: String) {
-        client.delete("$baseUrl/api/v1/households/$householdId/expenses/$expenseId")
-    }
-
     // -- Trips / Activities -------------------------------------------------
-
-    suspend fun trips(): List<TripDto> = client.get("$baseUrl/api/v1/trips").body()
-
-    suspend fun createTrip(request: CreateTripRequest): TripDto =
-        client.post("$baseUrl/api/v1/trips") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun trip(tripId: String): TripDetailResponse = client.get("$baseUrl/api/v1/trips/$tripId").body()
-
-    suspend fun updateTrip(tripId: String, request: UpdateTripRequest): TripDto =
-        client.put("$baseUrl/api/v1/trips/$tripId") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
 
     suspend fun addTripParticipant(tripId: String, displayName: String): TripParticipantDto =
         client.post("$baseUrl/api/v1/trips/$tripId/participants") {
             contentType(ContentType.Application.Json)
             setBody(AddTripParticipantRequest(displayName))
         }.body()
-
-    suspend fun archiveTripParticipant(tripId: String, participantId: String) {
-        client.delete("$baseUrl/api/v1/trips/$tripId/participants/$participantId")
-    }
-
-    suspend fun recordTripSettlement(tripId: String, request: RecordTripSettlementRequest): TripSettlementsResponse =
-        client.post("$baseUrl/api/v1/trips/$tripId/settlements") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun addTripExpense(tripId: String, request: AddTripExpenseRequest): TripExpenseDto =
-        client.post("$baseUrl/api/v1/trips/$tripId/expenses") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun updateTripExpense(tripId: String, expenseId: String, request: AddTripExpenseRequest): TripExpenseDto =
-        client.put("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId") {
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.body()
-
-    suspend fun deleteTripExpense(tripId: String, expenseId: String) {
-        client.delete("$baseUrl/api/v1/trips/$tripId/expenses/$expenseId")
-    }
 
     // -- Device pairing -----------------------------------------------------
 

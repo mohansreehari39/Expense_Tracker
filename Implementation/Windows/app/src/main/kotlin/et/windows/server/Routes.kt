@@ -591,7 +591,7 @@ private fun Route.trips(services: AppServices) {
                     val tripId = call.parameters["tripId"]!!
                     val request = call.receive<AddTripParticipantRequest>()
                     val participant = try {
-                        services.addTripParticipant(tripId, request.displayName, request.deviceId)
+                        services.addTripParticipant(tripId, request.displayName, request.deviceId ?: call.request.header("X-Device-Id"))
                     } catch (e: IllegalArgumentException) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid participant name")))
                     }

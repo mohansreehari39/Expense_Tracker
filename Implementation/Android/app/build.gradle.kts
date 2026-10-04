@@ -73,6 +73,7 @@ kotlin {
 dependencies {
     implementation("et.core:model")
     implementation("et.core:domain")
+    implementation("et.core:api")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
