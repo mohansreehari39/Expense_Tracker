@@ -68,6 +68,42 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
         suggestedSettlements = view.suggestions
     }
 
+    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
+
+    /** Records [amountMinorUnits] — the full suggestion or a partial payment, as entered in [SettleDialog] — on the server. */
+    suspend fun recordSettlement(s: SuggestedTransferDto, amountMinorUnits: Long) {
+        val remoteId = activity?.remoteId
+        val pairedServerId = activity?.pairedServerId
+        if (remoteId != null && pairedServerId != null) {
+            val server = repo.pairedServer(pairedServerId)
+            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+            api?.let {
+                runCatching {
+                    it.recordTripSettlement(
+                        remoteId,
+                        RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency),
+                    )
+                }
+            }
+            refreshBalances()
+        }
+    }
+
+    settleTarget?.let { s ->
+        // Suggestions carry remote ids (straight from the server's response) — never local ids.
+        SettleDialog(
+            fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
+            toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            owedMinorUnits = s.amount.minorUnits,
+            currency = s.amount.currency,
+            onDismiss = { settleTarget = null },
+            onConfirm = { amountMinorUnits ->
+                settleTarget = null
+                scope.launch { recordSettlement(s, amountMinorUnits) }
+            },
+        )
+    }
+
     LaunchedEffect(activityId, participants, expenses, activity?.pairedServerId) {
         refreshBalances()
     }
@@ -143,25 +179,7 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
                                     val toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("$fromName → $toName: ${formatMoney(s.amount.minorUnits, s.amount.currency)}", modifier = Modifier.weight(1f))
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                val remoteId = current?.remoteId
-                                                val pairedServerId = current?.pairedServerId
-                                                if (remoteId != null && pairedServerId != null) {
-                                                    val server = repo.pairedServer(pairedServerId)
-                                                    val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-                                                    api?.let {
-                                                        runCatching {
-                                                            it.recordTripSettlement(
-                                                                remoteId,
-                                                                RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
-                                                            )
-                                                        }
-                                                    }
-                                                    refreshBalances()
-                                                }
-                                            }
-                                        }) { Text("Settle") }
+                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
                             }

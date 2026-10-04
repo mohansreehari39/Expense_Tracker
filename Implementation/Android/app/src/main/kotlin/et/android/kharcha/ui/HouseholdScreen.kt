@@ -89,6 +89,42 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
         suggestedSettlements = view?.suggestions ?: emptyList()
     }
 
+    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
+
+    /** Records [amountMinorUnits] — the full suggestion or a partial payment, as entered in [SettleDialog] — on the server. */
+    suspend fun recordSettlement(s: SuggestedTransferDto, amountMinorUnits: Long) {
+        val remoteId = currentHousehold?.remoteId
+        val pairedServerId = currentHousehold?.pairedServerId
+        if (remoteId != null && pairedServerId != null) {
+            val server = repo.pairedServer(pairedServerId)
+            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
+            api?.let {
+                runCatching {
+                    it.recordHouseholdSettlement(
+                        remoteId,
+                        RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency),
+                    )
+                }
+            }
+        }
+        refreshBalances()
+    }
+
+    settleTarget?.let { s ->
+        // Suggestions carry remote ids (straight from the server's response) — never local ids.
+        SettleDialog(
+            fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
+            toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            owedMinorUnits = s.amount.minorUnits,
+            currency = s.amount.currency,
+            onDismiss = { settleTarget = null },
+            onConfirm = { amountMinorUnits ->
+                settleTarget = null
+                scope.launch { recordSettlement(s, amountMinorUnits) }
+            },
+        )
+    }
+
     LaunchedEffect(householdId, members, expenses, currentHousehold?.settlementEnabled, currentHousehold?.pairedServerId) {
         refreshBalances()
     }
@@ -182,25 +218,7 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
                                     val toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Text("$fromName → $toName: ${formatMoney(s.amount)}", modifier = Modifier.weight(1f))
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                val remoteId = currentHousehold?.remoteId
-                                                val pairedServerId = currentHousehold?.pairedServerId
-                                                if (remoteId != null && pairedServerId != null) {
-                                                    val server = repo.pairedServer(pairedServerId)
-                                                    val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-                                                    api?.let {
-                                                        runCatching {
-                                                            it.recordHouseholdSettlement(
-                                                                remoteId,
-                                                                RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                                refreshBalances()
-                                            }
-                                        }) { Text("Settle") }
+                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
                             }

@@ -30,6 +30,7 @@ import et.windows.server.AddTripExpenseRequest
 import et.windows.server.RecordTripSettlementRequest
 import et.windows.server.TripDetailResponse
 import et.windows.server.TripExpenseDto
+import et.windows.server.SuggestedTransferDto
 import kotlinx.coroutines.launch
 
 @Composable
@@ -48,6 +49,28 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
         } catch (e: Exception) {
             error = e.message ?: e::class.simpleName
         }
+    }
+
+    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
+
+    settleTarget?.let { s ->
+        SettleDialog(
+            fromName = detail?.participants.orEmpty().find { it.id == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
+            toName = detail?.participants.orEmpty().find { it.id == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            owed = s.amount,
+            onDismiss = { settleTarget = null },
+            onConfirm = { amountMinorUnits ->
+                settleTarget = null
+                scope.launch {
+                    try {
+                        api.recordTripSettlement(tripId, RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency))
+                    } catch (e: Exception) {
+                        error = e.message ?: e::class.simpleName
+                    }
+                    reload()
+                }
+            },
+        )
     }
 
     LaunchedEffect(tripId, refreshSignal) { reload() }
@@ -133,15 +156,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text("$fromName → $toName: ${formatMoney(s.amount)}")
-                                        TextButton(onClick = {
-                                            scope.launch {
-                                                api.recordTripSettlement(
-                                                    tripId,
-                                                    RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, s.amount.minorUnits, s.amount.currency),
-                                                )
-                                                reload()
-                                            }
-                                        }) { Text("Settle") }
+                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
                             }

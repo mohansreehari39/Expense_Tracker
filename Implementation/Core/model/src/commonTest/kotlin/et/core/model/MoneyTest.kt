@@ -37,4 +37,15 @@ class MoneyTest {
         assertNull(Money.parseMinorUnits("12a"))
         assertNull(Money.parseMinorUnits("1.2.3"))
     }
+
+    @Test
+    fun toPlainString_formatsForEditingAndRoundTrips() {
+        assertEquals("250", Money.toPlainString(25000))
+        assertEquals("250.50", Money.toPlainString(25050))
+        assertEquals("0.05", Money.toPlainString(5))
+        assertEquals("-12.30", Money.toPlainString(-1230))
+        for (value in listOf(0L, 5L, 99L, 1999L, 25050L, 125075L)) {
+            assertEquals(value, Money.parseMinorUnits(Money.toPlainString(value)))
+        }
+    }
 }
