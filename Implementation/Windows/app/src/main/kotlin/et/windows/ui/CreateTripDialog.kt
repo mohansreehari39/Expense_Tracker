@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import et.core.model.Money
 
 @Composable
 fun CreateTripDialog(
@@ -24,7 +25,7 @@ fun CreateTripDialog(
     var currency by remember { mutableStateOf("INR") }
     var participantsText by remember { mutableStateOf("") }
 
-    val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val budgetMinorUnits = Money.parseMinorUnits(budgetText)
     val participantNames = participantsText.split(",").map { it.trim() }.filter { it.isNotBlank() }
     val canSubmit = name.isNotBlank() && budgetMinorUnits != null && budgetMinorUnits > 0 && participantNames.isNotEmpty()
 

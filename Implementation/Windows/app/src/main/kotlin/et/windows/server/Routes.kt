@@ -106,7 +106,9 @@ private suspend fun householdBalances(services: AppServices, household: et.core.
     val expenses = services.repository.householdExpensesBetween(household.id, 0, Long.MAX_VALUE)
     val settlements = services.repository.householdSettlements(household.id)
     val currency = household.defaultMonthlyBudget?.currency ?: "INR"
-    val balances = et.core.domain.HouseholdBalances.netBalances(members.map { it.id }, expenses, settlements, currency)
+    val beneficiaries = expenses.flatMap { services.repository.householdExpenseBeneficiaries(it.id) }
+    val contributions = expenses.flatMap { services.repository.householdExpenseContributions(it.id) }
+    val balances = et.core.domain.HouseholdBalances.netBalances(members.map { it.id }, expenses, beneficiaries, contributions, settlements, currency)
     val suggestions = et.core.domain.DebtSimplification.simplify(balances)
     return balances.mapValues { it.value.toDto() } to suggestions.map { it.toDto() }
 }
@@ -530,11 +532,13 @@ private fun Route.trips(services: AppServices) {
                 val participants = services.repository.tripParticipants(tripId)
                 val expenses = services.repository.tripExpenses(tripId)
                 val splits = expenses.flatMap { services.repository.expenseSplits(it.id) }
+                val contributions = expenses.flatMap { services.repository.tripExpenseContributions(it.id) }
                 val settlements = services.repository.settlements(tripId)
                 val balances = TripBalances.netBalances(
                     participantIds = participants.map { it.id },
                     expenses = expenses,
                     splits = splits,
+                    contributions = contributions,
                     settlements = settlements,
                     currency = trip.budgetAmount.currency,
                 )
@@ -661,11 +665,13 @@ private fun Route.trips(services: AppServices) {
                     val participants = services.repository.tripParticipants(tripId)
                     val expenses = services.repository.tripExpenses(tripId)
                     val splits = expenses.flatMap { services.repository.expenseSplits(it.id) }
+                    val contributions = expenses.flatMap { services.repository.tripExpenseContributions(it.id) }
                     val settlements = services.repository.settlements(tripId)
                     val balances = TripBalances.netBalances(
                         participantIds = participants.map { it.id },
                         expenses = expenses,
                         splits = splits,
+                        contributions = contributions,
                         settlements = settlements,
                         currency = trip.budgetAmount.currency,
                     )

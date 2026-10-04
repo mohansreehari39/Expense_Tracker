@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.HouseholdDependentEntity
 import et.android.kharcha.data.local.MemberEntity
 import kotlinx.coroutines.launch
+import et.android.kharcha.data.parseAmountMinorUnits
 
 /** Rename/re-budget an existing household and remove members — the default monthly budget only, matching Windows' Household Settings dialog. Per-month overrides and adding members remain Windows-only for now. */
 @Composable
@@ -54,7 +55,7 @@ fun HouseholdSettingsDialog(
     var showAddDependent by remember { mutableStateOf(false) }
     var membersExpanded by remember { mutableStateOf(false) }
     var dependentsExpanded by remember { mutableStateOf(false) }
-    val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val budgetMinorUnits = parseAmountMinorUnits(budgetText)
     val canSubmit = name.isNotBlank() && (budgetText.isBlank() || budgetMinorUnits != null)
     val scope = rememberCoroutineScope()
 

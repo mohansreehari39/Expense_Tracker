@@ -31,6 +31,7 @@ import et.windows.server.HouseholdDependentDto
 import et.windows.server.MemberDto
 import et.windows.server.MoneyDto
 import kotlinx.coroutines.launch
+import et.core.model.Money
 
 /**
  * Household-level settings: rename, the *default* monthly budget used for
@@ -59,7 +60,7 @@ fun HouseholdSettingsDialog(
     var membersExpanded by remember { mutableStateOf(false) }
     var dependentsExpanded by remember { mutableStateOf(false) }
     val currency = currentDefaultBudget?.currency ?: "INR"
-    val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val budgetMinorUnits = Money.parseMinorUnits(budgetText)
     val budgetTextIsValid = budgetText.isBlank() || (budgetMinorUnits != null && budgetMinorUnits > 0)
     val scope = rememberCoroutineScope()
 

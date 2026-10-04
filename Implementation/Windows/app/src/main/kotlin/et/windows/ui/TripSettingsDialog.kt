@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.windows.server.TripParticipantDto
 import kotlinx.coroutines.launch
+import et.core.model.Money
 
 /** Activity-level settings: rename, budget, and participant management (add/remove). */
 @Composable
@@ -45,7 +46,7 @@ fun TripSettingsDialog(
     var participants by remember { mutableStateOf<List<TripParticipantDto>>(emptyList()) }
     var showAddParticipant by remember { mutableStateOf(false) }
     var participantsExpanded by remember { mutableStateOf(true) }
-    val budgetMinorUnits = budgetText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val budgetMinorUnits = Money.parseMinorUnits(budgetText)
     val scope = rememberCoroutineScope()
 
     suspend fun reloadParticipants() {

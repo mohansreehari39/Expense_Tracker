@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import et.android.kharcha.data.parseAmountMinorUnits
 
 /** One person a split can be entered against — a member/dependent/participant id + display name. */
 data class SplitCandidate(val id: String, val displayName: String)
@@ -101,7 +102,7 @@ fun SplitEditorDialog(
         text = text + (id to newText)
         val parsed = newText.toDoubleOrNull() ?: 0.0
         val minorUnits = when (unit) {
-            SplitUnit.AMOUNT -> (parsed * 100).toLong()
+            SplitUnit.AMOUNT -> parseAmountMinorUnits(newText) ?: 0L
             SplitUnit.PERCENTAGE -> (totalAmountMinorUnits * parsed / 100.0).toLong()
         }
         amounts = amounts + (id to minorUnits)

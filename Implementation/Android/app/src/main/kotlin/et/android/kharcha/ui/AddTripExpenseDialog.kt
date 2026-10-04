@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.ParticipantEntity
 import et.android.kharcha.data.equalSplitMinorUnits
+import et.android.kharcha.data.parseAmountMinorUnits
 
 /**
  * No separate "Paid by" chooser — [defaultParticipantId] (whoever's using
@@ -52,7 +53,7 @@ fun AddTripExpenseDialog(
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
     val payerFallback = expenseToEdit?.paidByParticipantId ?: defaultParticipantId ?: participants.firstOrNull()?.id
-    val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val amountMinorUnits = parseAmountMinorUnits(amountText)
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && payerFallback != null
 
     val candidates = participants.map { SplitCandidate(it.id, it.displayName) }

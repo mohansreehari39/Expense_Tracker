@@ -40,6 +40,7 @@ import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
+import et.android.kharcha.data.BalanceLoader
 import et.core.domain.evaluateBudget
 import et.core.model.Money
 import kotlinx.coroutines.launch
@@ -61,27 +62,10 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
     }
 
     suspend fun refreshBalances() {
-        val current = activity
-        val pairedServerId = current?.pairedServerId
-        val remoteId = current?.remoteId
-        val detail = if (pairedServerId != null && remoteId != null) {
-            val server = repo.pairedServer(pairedServerId)
-            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-            api?.let { runCatching { it.trip(remoteId) }.getOrNull() }
-        } else {
-            null
-        }
-        if (detail != null) {
-            val currentParticipants = repo.participants(activityId)
-            balances = detail.balances.mapNotNull { (remoteParticipantId, money) ->
-                val localId = currentParticipants.find { it.remoteId == remoteParticipantId }?.id ?: return@mapNotNull null
-                localId to money.minorUnits
-            }.toMap()
-            suggestedSettlements = detail.suggestedSettlements
-        } else {
-            balances = repo.activityBalances(activityId)
-            suggestedSettlements = emptyList()
-        }
+        val current = activity ?: return
+        val view = BalanceLoader(context, repo).forActivity(current)
+        balances = view.balances
+        suggestedSettlements = view.suggestions
     }
 
     LaunchedEffect(activityId, participants, expenses, activity?.pairedServerId) {

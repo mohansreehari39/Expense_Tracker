@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import et.core.model.Money
 
 /**
  * Sets this specific month's budget, overriding the household's default
@@ -34,7 +35,7 @@ fun MonthlyBudgetOverrideDialog(
     var amountText by remember {
         mutableStateOf(currentEffectiveAmountMinorUnits?.let { (it / 100.0).toString() } ?: "")
     }
-    val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val amountMinorUnits = Money.parseMinorUnits(amountText)
 
     AlertDialog(
         onDismissRequest = onDismiss,

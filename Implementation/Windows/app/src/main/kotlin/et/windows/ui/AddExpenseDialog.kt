@@ -29,6 +29,7 @@ import et.windows.server.MemberDto
 import et.windows.server.RecordExpenseRequest
 import et.windows.server.SplitModeDto
 import et.windows.server.SubcategoryDto
+import et.core.model.Money
 
 /**
  * Also used to edit an existing expense, when [expenseToEdit] is
@@ -60,7 +61,7 @@ fun AddExpenseDialog(
     var selectedSubcategoryId by remember { mutableStateOf(expenseToEdit?.subcategoryId) }
     val availableSubcategories = localCategories.find { it.id == selectedCategoryId }?.subcategories ?: emptyList()
     val payerFallback = expenseToEdit?.paidByMemberId ?: members.firstOrNull()?.id
-    val amountMinorUnits = amountText.toDoubleOrNull()?.let { (it * 100).toLong() }
+    val amountMinorUnits = Money.parseMinorUnits(amountText)
     val canSubmit = amountMinorUnits != null && amountMinorUnits > 0 && selectedCategoryId != null && payerFallback != null
 
     val beneficiaryCandidates = members.map { SplitCandidate(it.id, it.displayName) } +
