@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -235,11 +236,17 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
 
     if (current != null) {
         expenseToEdit?.let { expense ->
+            // The saved "who's it for" / "who chipped in" split, so editing re-opens it instead of the default.
+            val savedSplits by produceState<Pair<Map<String, Long>, Map<String, Long>>?>(null, expense.id) {
+                value = repo.activityExpenseBeneficiaries(expense.id).associate { it.participantId to it.amountMinorUnits } to repo.activityExpenseContributions(expense.id).associate { it.participantId to it.amountMinorUnits }
+            }
             AddTripExpenseDialog(
                 participants = participants,
                 currency = currency,
                 defaultParticipantId = myParticipantId,
                 expenseToEdit = expense,
+                savedBeneficiaries = savedSplits?.first?.takeIf { it.isNotEmpty() },
+                savedContributions = savedSplits?.second?.takeIf { it.isNotEmpty() },
                 onDismiss = { expenseToEdit = null },
                 onSubmit = { amountMinorUnits, paidByParticipantId, occurredAt, note, beneficiaries, contributions ->
                     scope.launch {

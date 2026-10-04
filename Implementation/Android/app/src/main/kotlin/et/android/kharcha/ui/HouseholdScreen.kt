@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -287,6 +288,10 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
     }
 
     expenseToEdit?.let { expense ->
+        // The saved "who's it for" / "who chipped in" split, so editing re-opens it instead of the default.
+        val savedSplits by produceState<Pair<Map<String, Long>, Map<String, Long>>?>(null, expense.id) {
+            value = repo.householdExpenseBeneficiaries(expense.id).associate { (it.memberId ?: it.dependentId!!) to it.amountMinorUnits } to repo.householdExpenseContributions(expense.id).associate { it.memberId to it.amountMinorUnits }
+        }
         AddHouseholdExpenseDialog(
             categories = categories,
             members = members,
@@ -297,6 +302,8 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
             onGetSubcategories = { categoryId -> repo.subcategories(categoryId) },
             onCreateSubcategory = { categoryId, name -> repo.addSubcategory(categoryId, name) },
             expenseToEdit = expense,
+            savedBeneficiaries = savedSplits?.first?.takeIf { it.isNotEmpty() },
+            savedContributions = savedSplits?.second?.takeIf { it.isNotEmpty() },
             onDismiss = { expenseToEdit = null },
             onSubmit = { categoryId, subcategoryId, amountMinorUnits, paidByMemberId, occurredAt, note, beneficiaries, contributions ->
                 scope.launch {
