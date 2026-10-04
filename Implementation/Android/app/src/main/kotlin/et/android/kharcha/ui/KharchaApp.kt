@@ -140,7 +140,7 @@ fun KharchaApp() {
 
         MainScreen(
             repo = repo,
-            myName = currentProfile.name,
+            initialName = currentProfile.name,
             darkMode = darkModeOverride ?: systemDark,
             onSetDarkMode = { enabled ->
                 scope.launch { connectionStore.setDarkMode(enabled) }
@@ -152,7 +152,7 @@ fun KharchaApp() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean, onSetDarkMode: (Boolean) -> Unit) {
+private fun MainScreen(repo: LocalRepository, initialName: String, darkMode: Boolean, onSetDarkMode: (Boolean) -> Unit) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -161,6 +161,8 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     val activities by repo.observeActivities().collectAsState(initial = emptyList())
     val pairedServers by repo.observePairedServers().collectAsState(initial = emptyList())
     val profile by repo.observeProfile().collectAsState(initial = null)
+    // Live, so Me → Edit profile takes effect everywhere at once.
+    val myName = profile?.name ?: initialName
 
     var showCreateHousehold by remember { mutableStateOf(false) }
     var showCreateTrip by remember { mutableStateOf(false) }
@@ -519,7 +521,19 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
     }
 
     if (showProfile) {
-        profile?.let { ProfileDialog(profile = it, onDismiss = { showProfile = false }) }
+        profile?.let { current ->
+            EditProfileSheet(
+                profile = current,
+                onDismiss = { showProfile = false },
+                onSave = { name, age, gender, phone, email ->
+                    scope.launch {
+                        repo.updateProfile(name, age, gender, phone, email)
+                        showProfile = false
+                        snackbarHostState.showSnackbar("Profile saved")
+                    }
+                },
+            )
+        }
     }
 
     availableUpdate?.let { update ->
@@ -821,7 +835,7 @@ private fun MeScreen(
             Column(Modifier.weight(1f)) {
                 Text(profile?.name.orEmpty(), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    listOfNotNull(profile?.email, profile?.phone).joinToString(" · ").ifBlank { "View your profile" },
+                    listOfNotNull(profile?.email, profile?.phone).joinToString(" · ").ifBlank { "Edit your profile" },
                     style = MaterialTheme.typography.bodySmall,
                     color = kharcha.muted,
                 )
@@ -888,7 +902,7 @@ private fun MeScreen(
                 onClick = { onSetDarkMode(!darkMode) },
                 trailing = { Switch(checked = darkMode, onCheckedChange = onSetDarkMode) },
             )
-            MeRow(Icons.Outlined.AccountCircle, "My profile", "Name, age, phone and email", onOpenProfile)
+            MeRow(Icons.Outlined.AccountCircle, "Edit profile", "Name, age, gender, phone and email", onOpenProfile)
         }
     }
 }

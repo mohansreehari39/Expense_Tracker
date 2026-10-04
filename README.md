@@ -352,9 +352,11 @@ into a dated sub-list below once actually shipped.
       summary text also moved into Core (`SplitDefaults`).
 
 **Planned for V1.5, not yet shipped:**
-- [ ] Edit profile on Android (name/age/gender/phone/email) — signup is
-      currently the only entry point; the read-only view shipped in
-      v0.1.1 above, editing is the natural next step.
+- [x] Edit profile on Android (name/age/gender/phone/email) — Me → Edit
+      profile, same fields and rules as signup (PR #20, not yet
+      released). Keeps the device identity; a new name applies to
+      households/activities that live only on the phone, while ones on a
+      server keep the joined name until member rename exists (V2.5).
 
 ### V2 — planned
 
