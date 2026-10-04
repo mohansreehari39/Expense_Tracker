@@ -23,12 +23,14 @@ import et.core.domain.SetMonthlyBudget
 import et.core.domain.SettleUp
 import et.windows.db.PairedDeviceStore
 import java.util.UUID
+import et.windows.db.SyncStore
 
 /** Everything a route handler needs — wired once in [et.windows.Main]. */
 class AppServices(
     val repository: Repository,
     val deviceId: String,
     val pairedDevices: PairedDeviceStore,
+    val syncStore: SyncStore,
 ) {
     private val idGenerator = IdGenerator { UUID.randomUUID().toString() }
 

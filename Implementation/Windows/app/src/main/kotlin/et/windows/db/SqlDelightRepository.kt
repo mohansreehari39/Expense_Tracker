@@ -7,7 +7,6 @@ import et.core.model.Device
 import et.core.model.EntityType
 import et.core.model.ExpenseSplit
 import et.core.model.Hlc
-import et.core.model.HlcClock
 import et.core.model.Household
 import et.core.model.HouseholdDependent
 import et.core.model.HouseholdExpense
@@ -33,18 +32,21 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * v0 simplification (see Implementation/Windows/README.md): each save
- * writes directly to its materialized table *and* appends a describing
- * [Operation] to the log, rather than the materialized state being
- * re-derived from the log via `OperationFold` on every read. Real
- * multi-device sync will need to fold incoming remote operations into
- * these tables too — that's the next milestone, not implemented yet.
+ * Every save here is a change made on this server (the Windows app's own
+ * screens, or a route a phone called): it's stamped as the newest version
+ * (see [Stamper]) so it wins over older copies and reaches every device on
+ * their next pull. Deleting an expense leaves a tombstone instead of
+ * removing the row. Records arriving from phones go through [SyncStore],
+ * which keeps their own stamps and applies last-write-wins.
+ *
+ * Each save also appends a describing [Operation] to the operation log,
+ * which isn't transmitted anywhere — record sync replaced it.
  */
 class SqlDelightRepository(
     private val db: WindowsDatabase,
     private val operationStore: OperationStore,
     private val deviceId: String,
-    private val clock: HlcClock,
+    private val stamper: Stamper,
 ) : Repository {
 
     override suspend fun households(): List<Household> = withContext(Dispatchers.IO) {
@@ -56,14 +58,19 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveHousehold(household: Household): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertHousehold(
-            id = household.id,
-            name = household.name,
-            createdAt = household.createdAt,
-            defaultBudgetAmountMinorUnits = household.defaultMonthlyBudget?.minorUnits,
-            defaultBudgetCurrency = household.defaultMonthlyBudget?.currency,
-            settlementEnabled = if (household.settlementEnabled) 1L else 0L,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertHousehold(
+                id = household.id,
+                name = household.name,
+                createdAt = household.createdAt,
+                defaultBudgetAmountMinorUnits = household.defaultMonthlyBudget?.minorUnits,
+                defaultBudgetCurrency = household.defaultMonthlyBudget?.currency,
+                settlementEnabled = if (household.settlementEnabled) 1L else 0L,
+                updatedAt = localStamp(),
+                isDeleted = 0L,
+                serverSeq = nextSeq(),
+            )
+        }
         logOp(EntityType.HOUSEHOLD, household.id, mapOf("name" to JsonPrimitive(household.name)))
     }
 
@@ -87,7 +94,9 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveCategory(category: Category): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L)
+        stamper.exclusive {
+            db.schemaQueries.upsertCategory(category.id, category.householdId, category.name, category.icon, if (category.isArchived) 1L else 0L, localStamp(), 0L, nextSeq())
+        }
         logOp(EntityType.CATEGORY, category.id, mapOf("name" to JsonPrimitive(category.name)))
     }
 
@@ -104,7 +113,9 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveSubcategory(subcategory: Subcategory): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertSubcategory(subcategory.id, subcategory.categoryId, subcategory.name, if (subcategory.isArchived) 1L else 0L)
+        stamper.exclusive {
+            db.schemaQueries.upsertSubcategory(subcategory.id, subcategory.categoryId, subcategory.name, if (subcategory.isArchived) 1L else 0L, localStamp(), 0L, nextSeq())
+        }
         logOp(EntityType.SUBCATEGORY, subcategory.id, mapOf("name" to JsonPrimitive(subcategory.name)))
     }
 
@@ -128,15 +139,20 @@ class SqlDelightRepository(
         Member(row.id, row.householdId, row.displayName, row.deviceId, row.email, row.phone, row.isArchived == 1L)
 
     override suspend fun saveMember(member: Member): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertMember(
-            member.id,
-            member.householdId,
-            member.displayName,
-            member.deviceId,
-            member.email,
-            member.phone,
-            if (member.isArchived) 1L else 0L,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertMember(
+                member.id,
+                member.householdId,
+                member.displayName,
+                member.deviceId,
+                member.email,
+                member.phone,
+                if (member.isArchived) 1L else 0L,
+                localStamp(),
+                0L,
+                nextSeq(),
+            )
+        }
         logOp(EntityType.MEMBER, member.id, mapOf("displayName" to JsonPrimitive(member.displayName)))
     }
 
@@ -157,13 +173,18 @@ class SqlDelightRepository(
     )
 
     override suspend fun saveHouseholdDependent(dependent: HouseholdDependent): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertHouseholdDependent(
-            dependent.id,
-            dependent.householdId,
-            dependent.name,
-            dependent.category.name,
-            if (dependent.isArchived) 1L else 0L,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertHouseholdDependent(
+                dependent.id,
+                dependent.householdId,
+                dependent.name,
+                dependent.category.name,
+                if (dependent.isArchived) 1L else 0L,
+                localStamp(),
+                0L,
+                nextSeq(),
+            )
+        }
         logOp(EntityType.HOUSEHOLD_DEPENDENT, dependent.id, mapOf("name" to JsonPrimitive(dependent.name)))
     }
 
@@ -182,15 +203,20 @@ class SqlDelightRepository(
         }
 
     override suspend fun saveMonthlyBudget(budget: MonthlyBudget): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertMonthlyBudget(
-            id = budget.id,
-            householdId = budget.householdId,
-            year = budget.year.toLong(),
-            month = budget.month.toLong(),
-            totalAmountMinorUnits = budget.totalAmount.minorUnits,
-            currency = budget.totalAmount.currency,
-            perCategoryJson = "{}",
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertMonthlyBudget(
+                id = budget.id,
+                householdId = budget.householdId,
+                year = budget.year.toLong(),
+                month = budget.month.toLong(),
+                totalAmountMinorUnits = budget.totalAmount.minorUnits,
+                currency = budget.totalAmount.currency,
+                perCategoryJson = "{}",
+                updatedAt = localStamp(),
+                isDeleted = 0L,
+                serverSeq = nextSeq(),
+            )
+        }
         logOp(
             EntityType.MONTHLY_BUDGET,
             budget.id,
@@ -246,23 +272,7 @@ class SqlDelightRepository(
         beneficiaries: List<HouseholdExpenseBeneficiary>,
         contributions: List<HouseholdExpenseContribution>,
     ): Unit = withContext(Dispatchers.IO) {
-        db.transaction {
-            db.schemaQueries.insertHouseholdExpense(
-                id = expense.id,
-                householdId = expense.householdId,
-                categoryId = expense.categoryId,
-                subcategoryId = expense.subcategoryId,
-                amountMinorUnits = expense.amount.minorUnits,
-                currency = expense.amount.currency,
-                paidByMemberId = expense.paidByMemberId,
-                occurredAt = expense.occurredAt,
-                note = expense.note,
-                createdByDeviceId = expense.createdByDeviceId,
-                createdAt = expense.createdAt,
-            )
-            insertHouseholdExpenseBeneficiaries(expense.id, beneficiaries)
-            insertHouseholdExpenseContributions(expense.id, contributions)
-        }
+        writeHouseholdExpense(expense, beneficiaries, contributions)
         logOp(
             EntityType.HOUSEHOLD_EXPENSE,
             expense.id,
@@ -280,22 +290,7 @@ class SqlDelightRepository(
         beneficiaries: List<HouseholdExpenseBeneficiary>,
         contributions: List<HouseholdExpenseContribution>,
     ): Unit = withContext(Dispatchers.IO) {
-        db.transaction {
-            db.schemaQueries.updateHouseholdExpense(
-                categoryId = expense.categoryId,
-                subcategoryId = expense.subcategoryId,
-                amountMinorUnits = expense.amount.minorUnits,
-                currency = expense.amount.currency,
-                paidByMemberId = expense.paidByMemberId,
-                occurredAt = expense.occurredAt,
-                note = expense.note,
-                id = expense.id,
-            )
-            db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expense.id)
-            db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expense.id)
-            insertHouseholdExpenseBeneficiaries(expense.id, beneficiaries)
-            insertHouseholdExpenseContributions(expense.id, contributions)
-        }
+        writeHouseholdExpense(expense, beneficiaries, contributions)
         logOp(
             EntityType.HOUSEHOLD_EXPENSE,
             expense.id,
@@ -307,6 +302,38 @@ class SqlDelightRepository(
             ),
             opType = OpType.UPDATE,
         )
+    }
+
+    /** Creates or replaces the expense row and its lines as one stamped write. */
+    private fun writeHouseholdExpense(
+        expense: HouseholdExpense,
+        beneficiaries: List<HouseholdExpenseBeneficiary>,
+        contributions: List<HouseholdExpenseContribution>,
+    ) {
+        stamper.exclusive {
+            db.transaction {
+                db.schemaQueries.upsertHouseholdExpense(
+                    id = expense.id,
+                    householdId = expense.householdId,
+                    categoryId = expense.categoryId,
+                    subcategoryId = expense.subcategoryId,
+                    amountMinorUnits = expense.amount.minorUnits,
+                    currency = expense.amount.currency,
+                    paidByMemberId = expense.paidByMemberId,
+                    occurredAt = expense.occurredAt,
+                    note = expense.note,
+                    createdByDeviceId = expense.createdByDeviceId,
+                    createdAt = expense.createdAt,
+                    updatedAt = localStamp(),
+                    isDeleted = 0L,
+                    serverSeq = nextSeq(),
+                )
+                db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expense.id)
+                db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expense.id)
+                insertHouseholdExpenseBeneficiaries(expense.id, beneficiaries)
+                insertHouseholdExpenseContributions(expense.id, contributions)
+            }
+        }
     }
 
     private fun insertHouseholdExpenseBeneficiaries(expenseId: String, beneficiaries: List<HouseholdExpenseBeneficiary>) {
@@ -335,10 +362,20 @@ class SqlDelightRepository(
     }
 
     override suspend fun deleteHouseholdExpense(expenseId: String): Unit = withContext(Dispatchers.IO) {
-        db.transaction {
-            db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expenseId)
-            db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expenseId)
-            db.schemaQueries.deleteHouseholdExpense(expenseId)
+        // A tombstone, not a removal — so phones that still have this expense learn it was deleted.
+        stamper.exclusive {
+            val row = db.schemaQueries.householdExpenseRowById(expenseId).executeAsOneOrNull() ?: return@exclusive
+            db.transaction {
+                db.schemaQueries.upsertHouseholdExpense(
+                    row.id, row.householdId, row.categoryId, row.subcategoryId, row.amountMinorUnits, row.currency,
+                    row.paidByMemberId, row.occurredAt, row.note, row.createdByDeviceId, row.createdAt,
+                    updatedAt = localStamp(),
+                    isDeleted = 1L,
+                    serverSeq = nextSeq(),
+                )
+                db.schemaQueries.deleteHouseholdExpenseBeneficiariesForExpense(expenseId)
+                db.schemaQueries.deleteHouseholdExpenseContributionsForExpense(expenseId)
+            }
         }
         logOp(EntityType.HOUSEHOLD_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)
     }
@@ -352,16 +389,21 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveTrip(trip: Trip): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertTrip(
-            id = trip.id,
-            name = trip.name,
-            startDate = trip.startDate,
-            endDate = trip.endDate,
-            budgetAmountMinorUnits = trip.budgetAmount.minorUnits,
-            currency = trip.budgetAmount.currency,
-            createdBy = trip.createdBy,
-            isClosed = if (trip.isClosed) 1L else 0L,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertTrip(
+                id = trip.id,
+                name = trip.name,
+                startDate = trip.startDate,
+                endDate = trip.endDate,
+                budgetAmountMinorUnits = trip.budgetAmount.minorUnits,
+                currency = trip.budgetAmount.currency,
+                createdBy = trip.createdBy,
+                isClosed = if (trip.isClosed) 1L else 0L,
+                updatedAt = localStamp(),
+                isDeleted = 0L,
+                serverSeq = nextSeq(),
+            )
+        }
         logOp(EntityType.TRIP, trip.id, mapOf("name" to JsonPrimitive(trip.name)))
     }
 
@@ -377,17 +419,27 @@ class SqlDelightRepository(
         db.schemaQueries.selectTripParticipantByDisplayName(tripId, displayName).executeAsOneOrNull()?.let(::toTripParticipant)
     }
 
+    override suspend fun tripParticipantByDeviceId(tripId: String, deviceId: String): TripParticipant? = withContext(Dispatchers.IO) {
+        db.schemaQueries.selectTripParticipantByDeviceId(tripId, deviceId).executeAsOneOrNull()?.let(::toTripParticipant)
+    }
+
     private fun toTripParticipant(row: et.windows.db.sql.TripParticipant) =
-        TripParticipant(row.id, row.tripId, row.displayName, row.memberId, row.isArchived == 1L)
+        TripParticipant(row.id, row.tripId, row.displayName, row.memberId, row.isArchived == 1L, row.deviceId)
 
     override suspend fun saveTripParticipant(participant: TripParticipant): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.upsertTripParticipant(
-            participant.id,
-            participant.tripId,
-            participant.displayName,
-            participant.memberId,
-            if (participant.isArchived) 1L else 0L,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertTripParticipant(
+                participant.id,
+                participant.tripId,
+                participant.displayName,
+                participant.memberId,
+                if (participant.isArchived) 1L else 0L,
+                participant.deviceId,
+                localStamp(),
+                0L,
+                nextSeq(),
+            )
+        }
         logOp(EntityType.TRIP_PARTICIPANT, participant.id, mapOf("displayName" to JsonPrimitive(participant.displayName)))
     }
 
@@ -424,21 +476,7 @@ class SqlDelightRepository(
 
     override suspend fun saveTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>): Unit =
         withContext(Dispatchers.IO) {
-            db.transaction {
-                db.schemaQueries.insertTripExpense(
-                    id = expense.id,
-                    tripId = expense.tripId,
-                    categoryId = expense.categoryId,
-                    subcategoryId = expense.subcategoryId,
-                    amountMinorUnits = expense.amount.minorUnits,
-                    currency = expense.amount.currency,
-                    paidByParticipantId = expense.paidByParticipantId,
-                    occurredAt = expense.occurredAt,
-                    note = expense.note,
-                )
-                insertExpenseSplits(expense.id, splits)
-                insertTripExpenseContributions(expense.id, contributions)
-            }
+            writeTripExpense(expense, splits, contributions)
             logOp(
                 EntityType.TRIP_EXPENSE,
                 expense.id,
@@ -448,22 +486,7 @@ class SqlDelightRepository(
 
     override suspend fun updateTripExpenseWithSplits(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>): Unit =
         withContext(Dispatchers.IO) {
-            db.transaction {
-                db.schemaQueries.updateTripExpense(
-                    categoryId = expense.categoryId,
-                    subcategoryId = expense.subcategoryId,
-                    amountMinorUnits = expense.amount.minorUnits,
-                    currency = expense.amount.currency,
-                    paidByParticipantId = expense.paidByParticipantId,
-                    occurredAt = expense.occurredAt,
-                    note = expense.note,
-                    id = expense.id,
-                )
-                db.schemaQueries.deleteExpenseSplitsForExpense(expense.id)
-                db.schemaQueries.deleteTripExpenseContributionsForExpense(expense.id)
-                insertExpenseSplits(expense.id, splits)
-                insertTripExpenseContributions(expense.id, contributions)
-            }
+            writeTripExpense(expense, splits, contributions)
             logOp(
                 EntityType.TRIP_EXPENSE,
                 expense.id,
@@ -471,6 +494,32 @@ class SqlDelightRepository(
                 opType = OpType.UPDATE,
             )
         }
+
+    /** Creates or replaces the trip expense row and its lines as one stamped write. */
+    private fun writeTripExpense(expense: TripExpense, splits: List<ExpenseSplit>, contributions: List<TripExpenseContribution>) {
+        stamper.exclusive {
+            db.transaction {
+                db.schemaQueries.upsertTripExpense(
+                    id = expense.id,
+                    tripId = expense.tripId,
+                    categoryId = expense.categoryId,
+                    subcategoryId = expense.subcategoryId,
+                    amountMinorUnits = expense.amount.minorUnits,
+                    currency = expense.amount.currency,
+                    paidByParticipantId = expense.paidByParticipantId,
+                    occurredAt = expense.occurredAt,
+                    note = expense.note,
+                    updatedAt = localStamp(),
+                    isDeleted = 0L,
+                    serverSeq = nextSeq(),
+                )
+                db.schemaQueries.deleteExpenseSplitsForExpense(expense.id)
+                db.schemaQueries.deleteTripExpenseContributionsForExpense(expense.id)
+                insertExpenseSplits(expense.id, splits)
+                insertTripExpenseContributions(expense.id, contributions)
+            }
+        }
+    }
 
     private fun insertExpenseSplits(expenseId: String, splits: List<ExpenseSplit>) {
         for (split in splits) {
@@ -497,10 +546,20 @@ class SqlDelightRepository(
     }
 
     override suspend fun deleteTripExpenseWithSplits(expenseId: String): Unit = withContext(Dispatchers.IO) {
-        db.transaction {
-            db.schemaQueries.deleteExpenseSplitsForExpense(expenseId)
-            db.schemaQueries.deleteTripExpenseContributionsForExpense(expenseId)
-            db.schemaQueries.deleteTripExpense(expenseId)
+        // A tombstone, not a removal — so phones that still have this expense learn it was deleted.
+        stamper.exclusive {
+            val row = db.schemaQueries.tripExpenseRowById(expenseId).executeAsOneOrNull() ?: return@exclusive
+            db.transaction {
+                db.schemaQueries.upsertTripExpense(
+                    row.id, row.tripId, row.categoryId, row.subcategoryId, row.amountMinorUnits, row.currency,
+                    row.paidByParticipantId, row.occurredAt, row.note,
+                    updatedAt = localStamp(),
+                    isDeleted = 1L,
+                    serverSeq = nextSeq(),
+                )
+                db.schemaQueries.deleteExpenseSplitsForExpense(expenseId)
+                db.schemaQueries.deleteTripExpenseContributionsForExpense(expenseId)
+            }
         }
         logOp(EntityType.TRIP_EXPENSE, expenseId, emptyMap(), opType = OpType.DELETE)
     }
@@ -520,16 +579,21 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveSettlement(settlement: Settlement): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.insertSettlement(
-            id = settlement.id,
-            tripId = settlement.tripId,
-            fromParticipantId = settlement.fromParticipantId,
-            toParticipantId = settlement.toParticipantId,
-            amountMinorUnits = settlement.amount.minorUnits,
-            currency = settlement.amount.currency,
-            settledAt = settlement.settledAt,
-            note = settlement.note,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertSettlement(
+                id = settlement.id,
+                tripId = settlement.tripId,
+                fromParticipantId = settlement.fromParticipantId,
+                toParticipantId = settlement.toParticipantId,
+                amountMinorUnits = settlement.amount.minorUnits,
+                currency = settlement.amount.currency,
+                settledAt = settlement.settledAt,
+                note = settlement.note,
+                updatedAt = localStamp(),
+                isDeleted = 0L,
+                serverSeq = nextSeq(),
+            )
+        }
         logOp(EntityType.SETTLEMENT, settlement.id, mapOf("amountMinorUnits" to JsonPrimitive(settlement.amount.minorUnits)))
     }
 
@@ -548,16 +612,21 @@ class SqlDelightRepository(
     }
 
     override suspend fun saveHouseholdSettlement(settlement: HouseholdSettlement): Unit = withContext(Dispatchers.IO) {
-        db.schemaQueries.insertHouseholdSettlement(
-            id = settlement.id,
-            householdId = settlement.householdId,
-            fromMemberId = settlement.fromMemberId,
-            toMemberId = settlement.toMemberId,
-            amountMinorUnits = settlement.amount.minorUnits,
-            currency = settlement.amount.currency,
-            settledAt = settlement.settledAt,
-            note = settlement.note,
-        )
+        stamper.exclusive {
+            db.schemaQueries.upsertHouseholdSettlement(
+                id = settlement.id,
+                householdId = settlement.householdId,
+                fromMemberId = settlement.fromMemberId,
+                toMemberId = settlement.toMemberId,
+                amountMinorUnits = settlement.amount.minorUnits,
+                currency = settlement.amount.currency,
+                settledAt = settlement.settledAt,
+                note = settlement.note,
+                updatedAt = localStamp(),
+                isDeleted = 0L,
+                serverSeq = nextSeq(),
+            )
+        }
         logOp(EntityType.HOUSEHOLD_SETTLEMENT, settlement.id, mapOf("amountMinorUnits" to JsonPrimitive(settlement.amount.minorUnits)))
     }
 
@@ -598,7 +667,7 @@ class SqlDelightRepository(
                     opType = opType,
                     patch = fields,
                     authorDeviceId = deviceId,
-                    hlc = clock.tick(),
+                    hlc = stamper.tick(),
                 ),
             ),
         )

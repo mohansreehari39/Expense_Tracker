@@ -27,6 +27,15 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
+import io.ktor.server.response.respondText
+import io.ktor.server.request.receiveText
+import io.ktor.http.ContentType
+import et.core.api.SyncScope
+import et.core.api.SyncJson
+import et.core.api.ScopeKind
+import et.core.api.PushResponse
+import et.core.api.PushRequest
+import et.core.api.PullResponse
 
 private val zone = TimeZone.currentSystemDefault()
 private fun LocalDate.startOfDayMillis(): Long = atStartOfDayIn(zone).toEpochMilliseconds()
@@ -123,6 +132,7 @@ fun Route.apiV1(services: AppServices) {
         households(services)
         trips(services)
         devices(services)
+        sync(services)
     }
 }
 
@@ -581,7 +591,7 @@ private fun Route.trips(services: AppServices) {
                     val tripId = call.parameters["tripId"]!!
                     val request = call.receive<AddTripParticipantRequest>()
                     val participant = try {
-                        services.addTripParticipant(tripId, request.displayName)
+                        services.addTripParticipant(tripId, request.displayName, request.deviceId)
                     } catch (e: IllegalArgumentException) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid participant name")))
                     }
@@ -690,6 +700,34 @@ private fun Route.trips(services: AppServices) {
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Record sync (et.core.api.SyncRecords). Phones push the records they
+ * changed and haven't synced yet, then pull everything in a household or
+ * activity changed since their last cursor. Encoded with the shared
+ * [SyncJson] so both sides agree on the record types.
+ */
+private fun Route.sync(services: AppServices) {
+    route("/sync") {
+        post("/push") {
+            val request = try {
+                SyncJson.decodeFromString(PushRequest.serializer(), call.receiveText())
+            } catch (e: kotlinx.serialization.SerializationException) {
+                return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "unreadable push")))
+            }
+            val results = services.syncStore.push(request.records)
+            call.respondText(SyncJson.encodeToString(PushResponse.serializer(), PushResponse(results)), ContentType.Application.Json)
+        }
+        get("/pull") {
+            val kind = call.parameters["kind"]?.let { runCatching { ScopeKind.valueOf(it) }.getOrNull() }
+                ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "kind must be HOUSEHOLD or TRIP"))
+            val id = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id is required"))
+            val since = call.parameters["since"]?.toLongOrNull() ?: PullResponse.START
+            val response = services.syncStore.pull(SyncScope(kind, id), since)
+            call.respondText(SyncJson.encodeToString(PullResponse.serializer(), response), ContentType.Application.Json)
         }
     }
 }

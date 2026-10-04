@@ -18,3 +18,4 @@ rootProject.name = "expense-tracker-core"
 include(":model")
 include(":sync")
 include(":domain")
+include(":api")
