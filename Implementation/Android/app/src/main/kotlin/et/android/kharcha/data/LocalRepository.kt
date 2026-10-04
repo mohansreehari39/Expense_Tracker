@@ -22,14 +22,6 @@ import java.util.UUID
 
 private val DEFAULT_CATEGORIES = listOf("Groceries", "Utilities", "Rent", "Eating Out", "Other")
 
-/** Equal-split remainder-to-first rule — mirrors Core's `SplitCalculator.splitEqually` (see Implementation/Core/domain/.../SplitCalculation.kt) so equal splits look the same on both apps. */
-private fun equalSplitMinorUnits(totalMinorUnits: Long, ids: List<String>): Map<String, Long> {
-    if (ids.isEmpty()) return emptyMap()
-    val base = totalMinorUnits / ids.size
-    val remainder = totalMinorUnits - base * ids.size
-    return ids.mapIndexed { index, id -> id to (base + if (index == 0) remainder else 0) }.toMap()
-}
-
 /**
  * The app's single source of truth — everything the UI reads/writes goes
  * through here, into the local Room database (see "Why local-first" in

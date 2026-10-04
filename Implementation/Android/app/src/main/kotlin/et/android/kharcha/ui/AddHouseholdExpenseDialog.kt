@@ -28,6 +28,7 @@ import et.android.kharcha.data.local.HouseholdDependentEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.SubcategoryEntity
+import et.android.kharcha.data.equalSplitMinorUnits
 
 /**
  * Also used to edit an existing expense, when [expenseToEdit] is

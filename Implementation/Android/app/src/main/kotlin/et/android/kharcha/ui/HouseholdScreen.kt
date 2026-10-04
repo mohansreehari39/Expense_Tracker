@@ -35,14 +35,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.BudgetMath
-import et.android.kharcha.data.DateRange
+import et.android.kharcha.data.contains
 import et.android.kharcha.data.LocalRepository
 import et.android.kharcha.data.RecordHouseholdSettlementRequest
 import et.android.kharcha.data.SuggestedTransferDto
 import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
+import et.core.domain.DateRange
+import et.core.domain.WeeklyBudget
+import et.core.domain.evaluateBudget
+import et.core.model.Money
+import kotlinx.datetime.toKotlinLocalDate
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -51,10 +55,7 @@ import java.time.ZoneId
 private fun occurredOn(occurredAt: Long): LocalDate =
     Instant.ofEpochMilli(occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
 
-private fun inRange(occurredAt: Long, range: DateRange): Boolean {
-    val date = occurredOn(occurredAt)
-    return !date.isBefore(range.start) && !date.isAfter(range.endInclusive)
-}
+private fun inRange(occurredAt: Long, range: DateRange): Boolean = occurredOn(occurredAt) in range
 
 @Composable
 fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, household: HouseholdEntity?) {
@@ -117,22 +118,27 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
 
     val monthExpenses = expenses.filter { occurredOn(it.occurredAt).monthValue == today.monthValue && occurredOn(it.occurredAt).year == today.year }
     val monthEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let {
-        BudgetMath.evaluateBudget(it, monthExpenses.sumOf { e -> e.amountMinorUnits }, currency)
+        evaluateBudget(Money(it, currency), Money(monthExpenses.sumOf { e -> e.amountMinorUnits }, currency))
     }
 
-    val weeks = remember(today) { BudgetMath.weeksInMonth(today.year, today.monthValue) }
+    val weeks = remember(today) { WeeklyBudget.weeksInMonth(today.year, today.monthValue) }
     LaunchedEffect(weeks) {
-        val currentIndex = weeks.indexOfFirst { !today.isBefore(it.start) && !today.isAfter(it.endInclusive) }
+        val currentIndex = weeks.indexOfFirst { today in it }
         weekIndex = if (currentIndex >= 0) currentIndex else 0
     }
     val currentWeek = weeks.getOrNull(weekIndex)
     val weekEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
         currentWeek?.let { week ->
             val spentByWeek = weeks.map { w -> monthExpenses.filter { inRange(it.occurredAt, w) }.sumOf { it.amountMinorUnits } }
-            val allocations = BudgetMath.rolloverAdjustedAllocations(budget, today.year, today.monthValue, weeks, spentByWeek, today)
-            val allocated = allocations[weekIndex]
-            val spent = spentByWeek[weekIndex]
-            BudgetMath.evaluateBudget(allocated, spent, currency)
+            val allocations = WeeklyBudget.rolloverAdjustedAllocations(
+                Money(budget, currency),
+                today.year,
+                today.monthValue,
+                weeks,
+                spentByWeek.map { Money(it, currency) },
+                today.toKotlinLocalDate(),
+            )
+            evaluateBudget(allocations[weekIndex], Money(spentByWeek[weekIndex], currency))
         }
     }
 

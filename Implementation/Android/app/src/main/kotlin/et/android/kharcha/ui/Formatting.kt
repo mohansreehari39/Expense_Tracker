@@ -1,7 +1,7 @@
 package et.android.kharcha.ui
 
 import androidx.compose.ui.graphics.Color
-import et.android.kharcha.data.BudgetStatus
+import et.core.domain.BudgetStatus
 import et.android.kharcha.data.MoneyDto
 import et.android.kharcha.ui.theme.Amber
 import et.android.kharcha.ui.theme.Rose

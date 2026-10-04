@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.ParticipantEntity
+import et.android.kharcha.data.equalSplitMinorUnits
 
 /**
  * No separate "Paid by" chooser — [defaultParticipantId] (whoever's using

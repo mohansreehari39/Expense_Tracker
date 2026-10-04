@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.BudgetMath
 import et.android.kharcha.data.LocalRepository
 import et.android.kharcha.data.RecordTripSettlementRequest
 import et.android.kharcha.data.SuggestedTransferDto
@@ -41,6 +40,8 @@ import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
+import et.core.domain.evaluateBudget
+import et.core.model.Money
 import kotlinx.coroutines.launch
 
 @Composable
@@ -91,7 +92,7 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
     val currency = current?.currency ?: "INR"
     val myParticipantId = participants.find { it.isMe }?.id
     val spent = expenses.sumOf { it.amountMinorUnits }
-    val evaluation = current?.let { BudgetMath.evaluateBudget(it.budgetMinorUnits, spent, currency) }
+    val evaluation = current?.let { evaluateBudget(Money(it.budgetMinorUnits, currency), Money(spent, currency)) }
 
     Scaffold(
         floatingActionButton = {

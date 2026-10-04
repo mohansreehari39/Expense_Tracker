@@ -14,10 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.BudgetEvaluation
 import et.android.kharcha.ui.theme.Amber
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
+import et.core.domain.BudgetEvaluation
 
 /** Once spent crosses this fraction of the allocation, the "remaining" figure turns red — a distinct, tighter warning than the OK/NEARING/OVER status color driving the bar/track (80%), specifically for this figure row. */
 private const val REMAINING_DANGER_THRESHOLD = 0.9
@@ -27,8 +27,8 @@ private const val REMAINING_DANGER_THRESHOLD = 0.9
  * red OVER), and directly underneath it the Spent (amber) / Remaining
  * (green, red past 90% spent) / Total (neutral) figures — the phone-sized
  * condensed form of the Windows app's weekly chart. [evaluation] is
- * computed entirely on-device (see data/BudgetMath.kt) — no server
- * involved.
+ * computed entirely on-device with the shared Core budget logic — no
+ * server involved.
  */
 @Composable
 fun BudgetBar(label: String, evaluation: BudgetEvaluation?, modifier: Modifier = Modifier) {
@@ -37,10 +37,10 @@ fun BudgetBar(label: String, evaluation: BudgetEvaluation?, modifier: Modifier =
         if (evaluation == null) {
             Text("No budget set", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            val progress = if (evaluation.allocatedMinorUnits <= 0) {
+            val progress = if (evaluation.allocated.minorUnits <= 0) {
                 1f
             } else {
-                (evaluation.spentMinorUnits.toFloat() / evaluation.allocatedMinorUnits.toFloat()).coerceIn(0f, 1f)
+                (evaluation.spent.minorUnits.toFloat() / evaluation.allocated.minorUnits.toFloat()).coerceIn(0f, 1f)
             }
             LinearProgressIndicator(
                 progress = { progress },
@@ -49,9 +49,9 @@ fun BudgetBar(label: String, evaluation: BudgetEvaluation?, modifier: Modifier =
                 modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
             )
             BudgetFigureRow(
-                spentMinorUnits = evaluation.spentMinorUnits,
-                allocatedMinorUnits = evaluation.allocatedMinorUnits,
-                currency = evaluation.currency,
+                spentMinorUnits = evaluation.spent.minorUnits,
+                allocatedMinorUnits = evaluation.allocated.minorUnits,
+                currency = evaluation.allocated.currency,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

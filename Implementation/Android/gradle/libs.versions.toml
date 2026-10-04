@@ -10,6 +10,7 @@ datastore = "1.1.1"
 ktor = "2.3.12"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.9.0"
+kotlinxDatetime = "0.6.1"
 zxing = "4.3.0"
 room = "2.6.1"
 ksp = "2.0.21-1.0.28"
@@ -30,6 +31,7 @@ compose-material3 = { module = "androidx.compose.material3:material3" }
 compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
