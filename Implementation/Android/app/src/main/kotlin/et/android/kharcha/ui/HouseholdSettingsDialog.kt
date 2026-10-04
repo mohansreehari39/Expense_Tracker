@@ -82,7 +82,7 @@ fun HouseholdSettingsDialog(
                     Column(Modifier.weight(1f)) {
                         Text("Per-person settlement", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Track each member's equal-split balance — who owes whom.",
+                            "Track who owes whom, from each expense's split.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

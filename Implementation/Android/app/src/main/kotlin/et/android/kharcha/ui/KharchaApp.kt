@@ -1,7 +1,9 @@
 package et.android.kharcha.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,38 +11,48 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.DarkMode
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Luggage
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.PieChart
+import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -48,15 +60,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -71,14 +90,16 @@ import et.android.kharcha.data.UpdateInstaller
 import et.android.kharcha.data.decodeJoinInvite
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.HouseholdEntity
-import et.android.kharcha.data.local.MemberEntity
-import et.android.kharcha.data.local.ParticipantEntity
+import et.android.kharcha.data.local.PairedServerEntity
 import et.android.kharcha.data.local.ProfileEntity
 import et.android.kharcha.ui.theme.KharchaTheme
+import et.android.kharcha.ui.theme.kharcha
+import et.core.model.Money
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val ROUTE_HOME = "home"
+private const val ROUTE_ME = "me"
 private const val ROUTE_HOUSEHOLD = "household/{householdId}"
 private const val ROUTE_ACTIVITY = "activity/{activityId}"
 private const val SYNC_INTERVAL_MS = 15_000L
@@ -134,7 +155,6 @@ fun KharchaApp() {
 private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean, onSetDarkMode: (Boolean) -> Unit) {
     val context = LocalContext.current
     val navController = rememberNavController()
-    val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
     val households by repo.observeHouseholds().collectAsState(initial = emptyList())
@@ -204,9 +224,9 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                 val api = ApiClient(baseUrl, deviceId, pairingKey)
                 val result = when (invite.kind) {
                     "household" -> runCatching { SyncEngine.joinHousehold(repo, api, pairedServerId, invite.id, myName) }
-                        .onSuccess { navController.navigate("household/$it") }
+                        .onSuccess { navController.navigate("household/$it") { popUpTo(ROUTE_HOME); launchSingleTop = true } }
                     "activity" -> runCatching { SyncEngine.joinActivity(repo, api, pairedServerId, invite.id, myName) }
-                        .onSuccess { navController.navigate("activity/$it") }
+                        .onSuccess { navController.navigate("activity/$it") { popUpTo(ROUTE_HOME); launchSingleTop = true } }
                     else -> Result.failure(IllegalArgumentException("Unexpected QR kind: ${invite.kind}"))
                 }
                 result.onFailure { error ->
@@ -247,99 +267,166 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet {
-                DrawerContent(
-                    households = households,
-                    activities = activities,
-                    onSelectHousehold = { id ->
-                        navController.navigate("household/$id")
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectActivity = { id ->
-                        navController.navigate("activity/$id")
-                        scope.launch { drawerState.close() }
-                    },
-                    onOpenHouseholdSettings = { id -> householdSettingsTarget = id },
-                    onOpenActivitySettings = { id -> activitySettingsTarget = id },
-                    onAddHousehold = { showCreateHousehold = true },
-                    onAddActivity = { showCreateTrip = true },
-                    onJoinViaQr = { joinScanLauncher.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false)) },
-                    onConnectToServer = { pairScanLauncher.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false)) },
-                    pairedServers = pairedServers,
-                    syncingNow = syncingNow,
-                    onForceSync = {
-                        scope.launch {
-                            syncingNow = true
-                            val ok = runCatching { SyncEngine.syncAll(context, repo) }.isSuccess
-                            syncingNow = false
-                            snackbarHostState.showSnackbar(if (ok) "Synced" else "Sync failed — will retry automatically")
-                        }
-                    },
-                    onRemoveServer = { serverId ->
-                        scope.launch {
-                            repo.forgetPairedServer(serverId)
-                            snackbarHostState.showSnackbar("Server removed")
-                        }
-                    },
-                    darkMode = darkMode,
-                    onSetDarkMode = onSetDarkMode,
-                    onOpenProfile = { showProfile = true },
-                    availableUpdate = availableUpdate,
-                    checkingUpdate = checkingUpdate,
-                    onCheckForUpdates = {
-                        scope.launch {
-                            checkingUpdate = true
-                            val found = runCatching { UpdateChecker.checkForUpdate(BuildConfig.VERSION_NAME) }.getOrNull()
-                            checkingUpdate = false
-                            if (found != null) {
-                                availableUpdate = found
-                            } else {
-                                snackbarHostState.showSnackbar("You're up to date (v${BuildConfig.VERSION_NAME})")
-                            }
-                        }
-                    },
-                )
-            }
-        },
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Kharcha") },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Filled.Menu, contentDescription = "Menu")
-                        }
-                    },
-                )
-            },
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-        ) { padding ->
-            Box(Modifier.padding(padding)) {
-                NavHost(navController = navController, startDestination = ROUTE_HOME) {
-                    composable(ROUTE_HOME) {
-                        SummaryScreen(
-                            repo = repo,
-                            households = households,
-                            activities = activities,
-                            onOpenHousehold = { navController.navigate("household/$it") },
-                            onOpenActivity = { navController.navigate("activity/$it") },
-                        )
-                    }
-                    composable(ROUTE_HOUSEHOLD) { entry ->
-                        val householdId = entry.arguments?.getString("householdId") ?: return@composable
-                        HouseholdScreen(repo = repo, householdId = householdId, myName = myName, household = households.find { it.id == householdId })
-                    }
-                    composable(ROUTE_ACTIVITY) { entry ->
-                        val activityId = entry.arguments?.getString("activityId") ?: return@composable
-                        ActivityScreen(repo = repo, activityId = activityId, myName = myName, activity = activities.find { it.id == activityId })
-                    }
+    val backStack by navController.currentBackStackEntryAsState()
+    val route = backStack?.destination?.route
+    val currentHouseholdId = if (route == ROUTE_HOUSEHOLD) backStack?.arguments?.getString("householdId") else null
+    val currentActivityId = if (route == ROUTE_ACTIVITY) backStack?.arguments?.getString("activityId") else null
+
+    // The household/activity Home shows: the one open now, else the last one opened.
+    var lastSpace by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentHouseholdId, currentActivityId) {
+        currentHouseholdId?.let { lastSpace = "household/$it" }
+        currentActivityId?.let { lastSpace = "activity/$it" }
+    }
+    val firstSpace = households.firstOrNull()?.let { "household/${it.id}" } ?: activities.firstOrNull()?.let { "activity/${it.id}" }
+    var showSpaces by remember { mutableStateOf(false) }
+    // Id of the household/activity whose screen should open "Add expense" (set by the + button).
+    var pendingAddFor by remember { mutableStateOf<String?>(null) }
+
+    fun openSpace(path: String) {
+        navController.navigate(path) {
+            popUpTo(ROUTE_HOME)
+            launchSingleTop = true
+        }
+    }
+
+    fun onAddPressed() {
+        when {
+            currentHouseholdId != null -> pendingAddFor = currentHouseholdId
+            currentActivityId != null -> pendingAddFor = currentActivityId
+            else -> {
+                val target = lastSpace ?: firstSpace
+                if (target == null) {
+                    showSpaces = true
+                    scope.launch { snackbarHostState.showSnackbar("Create or join a household or activity first.") }
+                } else {
+                    openSpace(target)
+                    pendingAddFor = target.substringAfter('/')
                 }
             }
         }
+    }
+
+    val chrome = SpaceChrome(
+        myName = myName,
+        onSwitchSpace = { showSpaces = true },
+        onOpenMe = { navController.navigate(ROUTE_ME) { launchSingleTop = true } },
+    )
+
+    Scaffold(
+        bottomBar = {
+            KharchaBottomBar(
+                onHomeSpace = currentHouseholdId != null || currentActivityId != null,
+                onSummary = route == ROUTE_HOME,
+                onMe = route == ROUTE_ME,
+                onHome = {
+                    val target = lastSpace ?: firstSpace
+                    if (target != null) openSpace(target) else showSpaces = true
+                },
+                onSpaces = { showSpaces = true },
+                onAdd = ::onAddPressed,
+                onSummaryClick = { navController.navigate(ROUTE_HOME) { popUpTo(ROUTE_HOME) { inclusive = true }; launchSingleTop = true } },
+                onMeClick = { navController.navigate(ROUTE_ME) { launchSingleTop = true } },
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { padding ->
+        Box(Modifier.padding(padding)) {
+            NavHost(navController = navController, startDestination = ROUTE_HOME) {
+                composable(ROUTE_HOME) {
+                    SummaryScreen(
+                        repo = repo,
+                        households = households,
+                        activities = activities,
+                        myName = myName,
+                        onOpenHousehold = { openSpace("household/$it") },
+                        onOpenActivity = { openSpace("activity/$it") },
+                        onOpenMe = chrome.onOpenMe,
+                    )
+                }
+                composable(ROUTE_HOUSEHOLD) { entry ->
+                    val householdId = entry.arguments?.getString("householdId") ?: return@composable
+                    HouseholdScreen(
+                        repo = repo,
+                        householdId = householdId,
+                        myName = myName,
+                        household = households.find { it.id == householdId },
+                        chrome = chrome.copy(onSettings = { householdSettingsTarget = householdId }),
+                        addRequested = pendingAddFor == householdId,
+                        onAddHandled = { pendingAddFor = null },
+                    )
+                }
+                composable(ROUTE_ACTIVITY) { entry ->
+                    val activityId = entry.arguments?.getString("activityId") ?: return@composable
+                    ActivityScreen(
+                        repo = repo,
+                        activityId = activityId,
+                        myName = myName,
+                        activity = activities.find { it.id == activityId },
+                        chrome = chrome.copy(onSettings = { activitySettingsTarget = activityId }),
+                        addRequested = pendingAddFor == activityId,
+                        onAddHandled = { pendingAddFor = null },
+                    )
+                }
+                composable(ROUTE_ME) {
+                    MeScreen(
+                        profile = profile,
+                        pairedServers = pairedServers,
+                        syncingNow = syncingNow,
+                        darkMode = darkMode,
+                        availableUpdate = availableUpdate,
+                        checkingUpdate = checkingUpdate,
+                        onOpenProfile = { showProfile = true },
+                        onForceSync = {
+                            scope.launch {
+                                syncingNow = true
+                                val ok = runCatching { SyncEngine.syncAll(context, repo) }.isSuccess
+                                syncingNow = false
+                                snackbarHostState.showSnackbar(if (ok) "Synced" else "Sync failed. It will retry automatically.")
+                            }
+                        },
+                        onRemoveServer = { serverId ->
+                            scope.launch {
+                                repo.forgetPairedServer(serverId)
+                                snackbarHostState.showSnackbar("Server removed")
+                            }
+                        },
+                        onJoinViaQr = { joinScanLauncher.launch(qrScanOptions()) },
+                        onConnectToServer = { pairScanLauncher.launch(qrScanOptions()) },
+                        onSetDarkMode = onSetDarkMode,
+                        onCheckForUpdates = {
+                            scope.launch {
+                                checkingUpdate = true
+                                val found = runCatching { UpdateChecker.checkForUpdate(BuildConfig.VERSION_NAME) }.getOrNull()
+                                checkingUpdate = false
+                                if (found != null) {
+                                    availableUpdate = found
+                                } else {
+                                    snackbarHostState.showSnackbar("You're up to date (v${BuildConfig.VERSION_NAME})")
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showSpaces) {
+        SpacesSheet(
+            households = households,
+            activities = activities,
+            currentId = currentHouseholdId ?: currentActivityId,
+            onDismiss = { showSpaces = false },
+            onOpenHousehold = { id -> showSpaces = false; openSpace("household/$id") },
+            onOpenActivity = { id -> showSpaces = false; openSpace("activity/$id") },
+            onHouseholdSettings = { id -> householdSettingsTarget = id },
+            onActivitySettings = { id -> activitySettingsTarget = id },
+            onAddHousehold = { showSpaces = false; showCreateHousehold = true },
+            onAddActivity = { showSpaces = false; showCreateTrip = true },
+            onJoinViaQr = { showSpaces = false; joinScanLauncher.launch(qrScanOptions()) },
+            onConnectToServer = { showSpaces = false; pairScanLauncher.launch(qrScanOptions()) },
+        )
     }
 
     if (showCreateHousehold) {
@@ -349,7 +436,7 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                 scope.launch {
                     val created = repo.createHousehold(name, myName)
                     showCreateHousehold = false
-                    navController.navigate("household/${created.id}")
+                    openSpace("household/${created.id}")
                 }
             },
         )
@@ -362,7 +449,7 @@ private fun MainScreen(repo: LocalRepository, myName: String, darkMode: Boolean,
                 scope.launch {
                     val created = repo.createActivity(name, budgetMinorUnits, currency, myName, participantNames)
                     showCreateTrip = false
-                    navController.navigate("activity/${created.id}")
+                    openSpace("activity/${created.id}")
                 }
             },
         )
@@ -541,161 +628,283 @@ private fun UpdateAvailableDialog(update: UpdateInfo, onDismiss: () -> Unit, onI
 /** A paired server counts as "Connected" if it's been reached within the last two sync intervals; older than that reads as "Offline" rather than claiming a live connection that may no longer hold. */
 private const val CONNECTED_STALE_AFTER_MS = SYNC_INTERVAL_MS * 2
 
+/** What a household/activity screen needs from the shell: the switcher, its settings, and Me. */
+data class SpaceChrome(
+    val myName: String,
+    val onSwitchSpace: () -> Unit,
+    val onOpenMe: () -> Unit,
+    val onSettings: () -> Unit = {},
+)
+
+private fun qrScanOptions() = ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false)
+
+/** Home · Spaces · + · Summary · Me. The center button adds an expense to the open household/activity. */
 @Composable
-private fun DrawerContent(
+private fun KharchaBottomBar(
+    onHomeSpace: Boolean,
+    onSummary: Boolean,
+    onMe: Boolean,
+    onHome: () -> Unit,
+    onSpaces: () -> Unit,
+    onAdd: () -> Unit,
+    onSummaryClick: () -> Unit,
+    onMeClick: () -> Unit,
+) {
+    val itemColors = NavigationBarItemDefaults.colors(
+        indicatorColor = kharcha.tonal,
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+        unselectedIconColor = kharcha.muted,
+        unselectedTextColor = kharcha.muted,
+    )
+    Column {
+        HorizontalDivider(color = kharcha.line)
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
+            NavigationBarItem(selected = onHomeSpace, onClick = onHome, icon = { Icon(Icons.Outlined.Home, null) }, label = { Text("Home") }, colors = itemColors)
+            NavigationBarItem(selected = false, onClick = onSpaces, icon = { Icon(Icons.Outlined.SwapHoriz, null) }, label = { Text("Spaces") }, colors = itemColors)
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Surface(
+                    onClick = onAdd,
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.size(52.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Add expense", tint = MaterialTheme.colorScheme.onPrimary)
+                    }
+                }
+            }
+            NavigationBarItem(selected = onSummary, onClick = onSummaryClick, icon = { Icon(Icons.Outlined.PieChart, null) }, label = { Text("Summary") }, colors = itemColors)
+            NavigationBarItem(selected = onMe, onClick = onMeClick, icon = { Icon(Icons.Outlined.Person, null) }, label = { Text("Me") }, colors = itemColors)
+        }
+    }
+}
+
+/** Tile colors for activities, so each one is recognisable in lists. Households use the theme's green. */
+private val ActivityTileColors = listOf(Color(0xFF1D5F91), Color(0xFF9A5A1A), Color(0xFF7A3E73), Color(0xFF3D5A80), Color(0xFF8A3B3B))
+
+fun activityTileColor(index: Int): Color = ActivityTileColors[index.mod(ActivityTileColors.size)]
+
+/** Replaces the old full-screen drawer: every household and activity, plus join/connect. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SpacesSheet(
     households: List<HouseholdEntity>,
     activities: List<ActivityEntity>,
-    onSelectHousehold: (String) -> Unit,
-    onSelectActivity: (String) -> Unit,
-    onOpenHouseholdSettings: (String) -> Unit,
-    onOpenActivitySettings: (String) -> Unit,
+    currentId: String?,
+    onDismiss: () -> Unit,
+    onOpenHousehold: (String) -> Unit,
+    onOpenActivity: (String) -> Unit,
+    onHouseholdSettings: (String) -> Unit,
+    onActivitySettings: (String) -> Unit,
     onAddHousehold: () -> Unit,
     onAddActivity: () -> Unit,
     onJoinViaQr: () -> Unit,
     onConnectToServer: () -> Unit,
-    pairedServers: List<et.android.kharcha.data.local.PairedServerEntity>,
-    syncingNow: Boolean,
-    onForceSync: () -> Unit,
-    onRemoveServer: (String) -> Unit,
-    darkMode: Boolean,
-    onSetDarkMode: (Boolean) -> Unit,
-    onOpenProfile: () -> Unit,
-    availableUpdate: UpdateInfo?,
-    checkingUpdate: Boolean,
-    onCheckForUpdates: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(vertical = 8.dp)) {
-        LazyColumn(Modifier.weight(1f)) {
-            item { DrawerSectionHeader("HOUSEHOLD", onAdd = onAddHousehold) }
-            items(households) { household ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    NavigationDrawerItem(
-                        label = { Text(household.name) },
-                        selected = false,
-                        onClick = { onSelectHousehold(household.id) },
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    )
-                    IconButton(onClick = { onOpenHouseholdSettings(household.id) }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Household Settings", modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-            item { DrawerSectionHeader("ACTIVITIES", onAdd = onAddActivity) }
-            items(activities) { activity ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    NavigationDrawerItem(
-                        label = { Text(activity.name) },
-                        selected = false,
-                        onClick = { onSelectActivity(activity.id) },
-                        modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    )
-                    IconButton(onClick = { onOpenActivitySettings(activity.id) }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Activity Settings", modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
-        }
-        HorizontalDivider()
-        NavigationDrawerItem(
-            label = { Text("Join Household/Activity") },
-            icon = { Icon(Icons.Filled.QrCodeScanner, contentDescription = null) },
-            selected = false,
-            onClick = onJoinViaQr,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("Connect to Server") },
-            icon = { Icon(Icons.Filled.Wifi, contentDescription = null) },
-            selected = false,
-            onClick = onConnectToServer,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        if (pairedServers.isNotEmpty()) {
-            val now = System.currentTimeMillis()
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                pairedServers.forEach { server ->
-                    val connected = server.lastSyncSuccessAt != null && now - server.lastSyncSuccessAt < CONNECTED_STALE_AFTER_MS
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(
-                                Modifier.size(8.dp).background(
-                                    if (connected) androidx.compose.ui.graphics.Color(0xFF2E7D32) else MaterialTheme.colorScheme.outlineVariant,
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                ),
-                            )
-                            Text(
-                                "${server.label}: ${if (connected) "Connected" else "Offline"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(onClick = onForceSync, enabled = !syncingNow, modifier = Modifier.size(28.dp)) {
-                                if (syncingNow) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                } else {
-                                    Icon(Icons.Filled.Refresh, contentDescription = "Sync now", modifier = Modifier.size(16.dp))
-                                }
-                            }
-                            IconButton(onClick = { onRemoveServer(server.id) }, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.Filled.Close, contentDescription = "Remove server", modifier = Modifier.size(16.dp))
-                            }
-                        }
-                        // Last failure reason, kept even after a later success
-                        // clears lastSyncSuccessAt staleness — only shown while
-                        // actually reading as Offline, so a healthy connection
-                        // doesn't show yesterday's transient blip forever.
-                        if (!connected && server.lastSyncError != null) {
-                            Text(
-                                server.lastSyncError,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        NavigationDrawerItem(
-            label = { Text(if (availableUpdate != null) "Update available (v${availableUpdate.version})" else "Check for Updates") },
-            icon = {
-                if (checkingUpdate) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Filled.SystemUpdate, contentDescription = null)
-                }
-            },
-            selected = false,
-            onClick = onCheckForUpdates,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        NavigationDrawerItem(
-            label = { Text("My Profile") },
-            icon = { Icon(Icons.Filled.Person, contentDescription = null) },
-            selected = false,
-            onClick = onOpenProfile,
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(if (darkMode) "Dark Mode" else "Light Mode", style = MaterialTheme.typography.bodyMedium)
-            Switch(checked = darkMode, onCheckedChange = onSetDarkMode)
+            SheetSectionHeader("Households", addLabel = "New household", onAdd = onAddHousehold)
+            if (households.isEmpty()) EmptyHint("No households yet. Create one, or join with a QR code.")
+            households.forEach { household ->
+                SpaceRow(
+                    icon = Icons.Outlined.Home,
+                    tile = MaterialTheme.colorScheme.primary,
+                    name = household.name,
+                    detail = household.defaultBudgetMinorUnits?.let { "Budget ${formatMoney(it, household.currency)} a month" } ?: "No monthly budget set",
+                    selected = household.id == currentId,
+                    onOpen = { onOpenHousehold(household.id) },
+                    onSettings = { onHouseholdSettings(household.id) },
+                )
+            }
+            Box(Modifier.size(4.dp))
+            SheetSectionHeader("Activities", addLabel = "New activity", onAdd = onAddActivity)
+            if (activities.isEmpty()) EmptyHint("No activities yet. Trips and events go here.")
+            activities.forEachIndexed { index, activity ->
+                SpaceRow(
+                    icon = Icons.Outlined.Luggage,
+                    tile = activityTileColor(index),
+                    name = activity.name,
+                    detail = "Budget ${formatMoney(activity.budgetMinorUnits, activity.currency)}",
+                    selected = activity.id == currentId,
+                    onOpen = { onOpenActivity(activity.id) },
+                    onSettings = { onActivitySettings(activity.id) },
+                )
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onJoinViaQr, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, kharcha.line)) {
+                    Icon(Icons.Outlined.QrCodeScanner, null, modifier = Modifier.size(18.dp))
+                    Text("Join with QR", maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+                }
+                OutlinedButton(onClick = onConnectToServer, modifier = Modifier.weight(1f), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, kharcha.line)) {
+                    Icon(Icons.Outlined.Wifi, null, modifier = Modifier.size(18.dp))
+                    Text("Connect", maxLines = 1, modifier = Modifier.padding(start = 6.dp))
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun DrawerSectionHeader(title: String, onAdd: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(title, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        IconButton(onClick = onAdd, modifier = Modifier.size(24.dp)) {
-            Text("+", style = MaterialTheme.typography.titleMedium)
+private fun SheetSectionHeader(title: String, addLabel: String, onAdd: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        SectionLabel(title)
+        Surface(onClick = onAdd, shape = CircleShape, color = kharcha.tonal, modifier = Modifier.size(30.dp)) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Add, contentDescription = addLabel, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
         }
+    }
+}
+
+@Composable
+private fun SpaceRow(icon: ImageVector, tile: Color, name: String, detail: String, selected: Boolean, onOpen: () -> Unit, onSettings: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(if (selected) kharcha.tonal else Color.Transparent)
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        IconTile(icon, background = tile, tint = Color.White, size = 36.dp)
+        Column(Modifier.weight(1f)) {
+            Text(name, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold))
+            Text(detail, style = MaterialTheme.typography.bodySmall.tabular(), color = kharcha.muted)
+        }
+        IconButton(onClick = onSettings) { Icon(Icons.Outlined.Settings, contentDescription = "Settings for $name", tint = kharcha.muted) }
+    }
+}
+
+@Composable
+private fun EmptyHint(text: String) {
+    Text(text, style = MaterialTheme.typography.bodySmall, color = kharcha.muted, modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp))
+}
+
+/** Profile, server connection, join/connect, updates and dark mode — everything that used to sit in the drawer's lower half. */
+@Composable
+private fun MeScreen(
+    profile: ProfileEntity?,
+    pairedServers: List<PairedServerEntity>,
+    syncingNow: Boolean,
+    darkMode: Boolean,
+    availableUpdate: UpdateInfo?,
+    checkingUpdate: Boolean,
+    onOpenProfile: () -> Unit,
+    onForceSync: () -> Unit,
+    onRemoveServer: (String) -> Unit,
+    onJoinViaQr: () -> Unit,
+    onConnectToServer: () -> Unit,
+    onSetDarkMode: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ScreenTitleBar("Me", myName = profile?.name.orEmpty(), onOpenMe = null)
+
+        Row(
+            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(onClick = onOpenProfile).padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Avatar(profile?.name.orEmpty(), onClick = onOpenProfile, size = 52.dp)
+            Column(Modifier.weight(1f)) {
+                Text(profile?.name.orEmpty(), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    listOfNotNull(profile?.email, profile?.phone).joinToString(" · ").ifBlank { "View your profile" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = kharcha.muted,
+                )
+            }
+        }
+
+        SectionLabel("Server")
+        if (pairedServers.isEmpty()) {
+            SectionCard {
+                Text("Not connected to a server. Everything stays on this phone until you connect.", style = MaterialTheme.typography.bodyMedium, color = kharcha.muted)
+                TonalPill("Connect to a server", onClick = onConnectToServer)
+            }
+        }
+        val now = System.currentTimeMillis()
+        pairedServers.forEach { server ->
+            val connected = server.lastSyncSuccessAt != null && now - server.lastSyncSuccessAt < CONNECTED_STALE_AFTER_MS
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    IconTile(Icons.Outlined.Wifi)
+                    Column(Modifier.weight(1f)) {
+                        Text(server.label, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+                        Text(
+                            if (connected) "Connected" else "Offline",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (connected) kharcha.ok else kharcha.muted,
+                        )
+                    }
+                }
+                // Last failure reason, only while reading as Offline — a healthy connection doesn't keep showing yesterday's blip.
+                if (!connected && server.lastSyncError != null) {
+                    Text(server.lastSyncError, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (syncingNow) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Syncing…", style = MaterialTheme.typography.bodySmall, color = kharcha.muted)
+                    } else {
+                        TonalPill("Sync now", onClick = onForceSync)
+                    }
+                    TonalPill("Remove", onClick = { onRemoveServer(server.id) })
+                }
+            }
+        }
+
+        SectionLabel("Join and connect")
+        SectionCard {
+            MeRow(Icons.Outlined.QrCodeScanner, "Join with QR", "Scan a household or activity invite", onJoinViaQr)
+            MeRow(Icons.Outlined.Wifi, "Connect to a server", "Scan the QR shown on the Windows app", onConnectToServer)
+        }
+
+        SectionLabel("App")
+        SectionCard {
+            MeRow(
+                Icons.Outlined.SystemUpdate,
+                if (availableUpdate != null) "Update available" else "Check for updates",
+                if (availableUpdate != null) "v${availableUpdate.version} is ready to install" else "You're on v${BuildConfig.VERSION_NAME}",
+                onCheckForUpdates,
+                trailing = { if (checkingUpdate) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) },
+            )
+            MeRow(
+                Icons.Outlined.DarkMode,
+                "Dark mode",
+                null,
+                onClick = { onSetDarkMode(!darkMode) },
+                trailing = { Switch(checked = darkMode, onCheckedChange = onSetDarkMode) },
+            )
+            MeRow(Icons.Outlined.AccountCircle, "My profile", "Name, age, phone and email", onOpenProfile)
+        }
+    }
+}
+
+@Composable
+private fun MeRow(icon: ImageVector, title: String, subtitle: String?, onClick: () -> Unit, trailing: @Composable () -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        IconTile(icon)
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold))
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = kharcha.muted)
+        }
+        trailing()
     }
 }

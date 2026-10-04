@@ -53,6 +53,8 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import et.android.kharcha.ui.theme.kharcha
+import androidx.compose.material.icons.outlined.Home
 
 private fun occurredOn(occurredAt: Long): LocalDate =
     Instant.ofEpochMilli(occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -60,7 +62,15 @@ private fun occurredOn(occurredAt: Long): LocalDate =
 private fun inRange(occurredAt: Long, range: DateRange): Boolean = occurredOn(occurredAt) in range
 
 @Composable
-fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, household: HouseholdEntity?) {
+fun HouseholdScreen(
+    repo: LocalRepository,
+    householdId: String,
+    myName: String,
+    household: HouseholdEntity?,
+    chrome: SpaceChrome,
+    addRequested: Boolean,
+    onAddHandled: () -> Unit,
+) {
     val categories by repo.observeCategories(householdId).collectAsState(initial = emptyList())
     val members by repo.observeMembers(householdId).collectAsState(initial = emptyList())
     val dependents by repo.observeDependents(householdId).collectAsState(initial = emptyList())
@@ -77,6 +87,14 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
 
     LaunchedEffect(householdId) {
         repo.ensureMyMembership(householdId, myName)
+    }
+
+    // The bottom bar's + button.
+    LaunchedEffect(addRequested) {
+        if (addRequested) {
+            showAddExpense = true
+            onAddHandled()
+        }
     }
 
     val currentHousehold = household
@@ -140,125 +158,120 @@ fun HouseholdScreen(repo: LocalRepository, householdId: String, myName: String, 
         val currentIndex = weeks.indexOfFirst { today in it }
         weekIndex = if (currentIndex >= 0) currentIndex else 0
     }
-    val currentWeek = weeks.getOrNull(weekIndex)
-    val weekEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
-        currentWeek?.let { week ->
-            val spentByWeek = weeks.map { w -> monthExpenses.filter { inRange(it.occurredAt, w) }.sumOf { it.amountMinorUnits } }
-            val allocations = WeeklyBudget.rolloverAdjustedAllocations(
-                Money(budget, currency),
-                today.year,
-                today.monthValue,
-                weeks,
-                spentByWeek.map { Money(it, currency) },
-                today.toKotlinLocalDate(),
-            )
-            evaluateBudget(allocations[weekIndex], Money(spentByWeek[weekIndex], currency))
-        }
+    // Every week's figures (rollover applied), so each chip can show what's left in it.
+    val weekEvaluations = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
+        val spentByWeek = weeks.map { w -> monthExpenses.filter { inRange(it.occurredAt, w) }.sumOf { it.amountMinorUnits } }
+        val allocations = WeeklyBudget.rolloverAdjustedAllocations(
+            Money(budget, currency),
+            today.year,
+            today.monthValue,
+            weeks,
+            spentByWeek.map { Money(it, currency) },
+            today.toKotlinLocalDate(),
+        )
+        weeks.indices.map { i -> evaluateBudget(allocations[i], Money(spentByWeek[i], currency)) }
     }
+    val weekEvaluation = weekEvaluations?.getOrNull(weekIndex)
+    val weekRanges = weeks.map { "${it.start.dayOfMonth}–${it.endInclusive.dayOfMonth}" }
+    val monthName = today.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddExpense = true }) { Icon(Icons.Filled.Add, contentDescription = "Add Expense") }
-        },
-    ) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            SpaceTopBar(
+                name = currentHousehold?.name ?: "Household",
+                icon = Icons.Outlined.Home,
+                myName = chrome.myName,
+                onSwitchSpace = chrome.onSwitchSpace,
+                onSettings = chrome.onSettings,
+                onOpenMe = chrome.onOpenMe,
+            )
+        }
+        item { BudgetHero("Left this month · $monthName", monthEvaluation) }
+
+        if (weekEvaluations != null) {
             item {
-                Text(currentHousehold?.name ?: "Household", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(12.dp))
-
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        BudgetBar("This month", monthEvaluation)
-                        Spacer(Modifier.height(16.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { if (weekIndex > 0) weekIndex-- }, enabled = weekIndex > 0) {
-                                Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous week")
-                            }
-                            BudgetBar(
-                                currentWeek?.let { "Week of ${it.start}" } ?: "This week",
-                                weekEvaluation,
-                                modifier = Modifier.weight(1f),
-                            )
-                            IconButton(onClick = { if (weekIndex < weeks.size - 1) weekIndex++ }, enabled = weekIndex < weeks.size - 1) {
-                                Icon(Icons.Filled.ChevronRight, contentDescription = "Next week")
-                            }
-                        }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WeekChips(
+                        ranges = weekRanges,
+                        amounts = weekEvaluations.map { compactMoney(it.allocated.minorUnits - it.spent.minorUnits, currency) },
+                        selected = weekIndex,
+                        onSelect = { weekIndex = it },
+                    )
+                    weekEvaluation?.let { week ->
+                        val left = week.allocated.minorUnits - week.spent.minorUnits
+                        Text(
+                            if (left >= 0) {
+                                "Days ${weekRanges[weekIndex]}: ${formatMoney(left, currency)} left of ${formatMoney(week.allocated.minorUnits, currency)}"
+                            } else {
+                                "Days ${weekRanges[weekIndex]}: over by ${formatMoney(-left, currency)}"
+                            },
+                            style = MaterialTheme.typography.bodySmall.tabular(),
+                            color = if (left >= 0) kharcha.muted else kharcha.over,
+                        )
+                        ProgressTrack(
+                            if (week.allocated.minorUnits <= 0) 1f else week.spent.minorUnits.toFloat() / week.allocated.minorUnits,
+                            statusColor(week.status),
+                            height = 6.dp,
+                        )
                     }
                 }
+            }
+        }
 
-                if (currentHousehold?.settlementEnabled == true) {
-                    Spacer(Modifier.height(16.dp))
-                    Text("Balances", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            members.forEach { member ->
-                                val balance = balances[member.id]
-                                val label = when {
+        if (currentHousehold?.settlementEnabled == true) {
+            item {
+                SectionCard(title = "Balances", trailing = "settlement on") {
+                    members.forEach { member ->
+                        val balance = balances[member.id]
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(member.displayName, style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                when {
                                     balance == null || balance == 0L -> "settled up"
                                     balance > 0 -> "is owed ${formatMoney(balance, currency)}"
                                     else -> "owes ${formatMoney(-balance, currency)}"
-                                }
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(member.displayName)
-                                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
+                                },
+                                style = MaterialTheme.typography.bodyMedium.tabular(),
+                                color = when {
+                                    balance == null || balance == 0L -> kharcha.muted
+                                    balance > 0 -> kharcha.ok
+                                    else -> kharcha.warn
+                                },
+                            )
                         }
                     }
-
-                    if (suggestedSettlements.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
-                        Text("Suggested Settlements", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp)) {
-                                suggestedSettlements.forEach { s ->
-                                    // s.fromParticipantId/toParticipantId are remote member ids (this list comes straight from the server's response) — never local ids.
-                                    val fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
-                                    val toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("$fromName → $toName: ${formatMoney(s.amount)}", modifier = Modifier.weight(1f))
-                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
-                                    }
-                                }
-                            }
+                    suggestedSettlements.forEach { s ->
+                        // s.fromParticipantId/toParticipantId are remote member ids (straight from the server's response) — never local ids.
+                        val fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
+                        val toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("$fromName pays $toName ${formatMoney(s.amount)}", style = MaterialTheme.typography.bodyMedium.tabular(), modifier = Modifier.weight(1f))
+                            TonalPill("Settle", onClick = { settleTarget = s })
                         }
                     }
-                }
-
-                Spacer(Modifier.height(24.dp))
-                Text("Recent Expenses", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                if (monthExpenses.isEmpty()) {
-                    Text("No expenses recorded this month yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
 
-            items(monthExpenses.sortedByDescending { it.occurredAt }) { expense ->
-                val categoryName = categories.find { it.id == expense.categoryId }?.name ?: expense.categoryId
-                val paidByName = members.find { it.id == expense.paidByMemberId }?.displayName ?: expense.paidByMemberId
-                Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                    Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f)) {
-                            Text(categoryName, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Paid by $paidByName · ${formatExpenseDate(expense.occurredAt)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (expense.note.isNotBlank()) {
-                                Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(formatMoney(expense.amountMinorUnits, expense.currency), style = MaterialTheme.typography.titleMedium)
-                            Row {
-                                TextButton(onClick = { expenseToEdit = expense }) { Text("Edit") }
-                                TextButton(onClick = { expenseToDelete = expense }) { Text("Delete") }
-                            }
-                        }
-                    }
+        item {
+            SectionCard(title = "This month", trailing = "${monthExpenses.size} ${if (monthExpenses.size == 1) "expense" else "expenses"}") {
+                if (monthExpenses.isEmpty()) {
+                    Text("No expenses yet this month. Tap + to add one.", style = MaterialTheme.typography.bodyMedium, color = kharcha.muted)
+                }
+                monthExpenses.sortedByDescending { it.occurredAt }.forEach { expense ->
+                    val categoryName = categories.find { it.id == expense.categoryId }?.name ?: "Expense"
+                    val paidByName = members.find { it.id == expense.paidByMemberId }?.displayName ?: "someone"
+                    ListRow(
+                        icon = categoryIcon(categoryName),
+                        title = categoryName,
+                        subtitle = listOf("${formatExpenseDate(expense.occurredAt)} · Paid by $paidByName", expense.note).filter { it.isNotBlank() }.joinToString("\n"),
+                        trailing = formatMoney(expense.amountMinorUnits, expense.currency),
+                        menu = listOf("Edit" to { expenseToEdit = expense }, "Delete" to { expenseToDelete = expense }),
+                    )
                 }
             }
         }

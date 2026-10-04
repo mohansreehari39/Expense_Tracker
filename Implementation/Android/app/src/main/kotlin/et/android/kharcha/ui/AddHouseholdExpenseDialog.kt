@@ -103,96 +103,83 @@ fun AddHouseholdExpenseDialog(
         subcategories = selectedCategoryId?.let { onGetSubcategories(it) } ?: emptyList()
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (expenseToEdit == null) "Add Household Expense" else "Edit Expense") },
-        text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Amount ($currency)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                CategoryPicker(
-                    categories = categories,
-                    selectedCategoryId = selectedCategoryId,
-                    onCategorySelected = {
-                        selectedCategoryId = it.id
-                        selectedSubcategoryId = null
-                    },
-                    onCreateCategory = { name ->
-                        val created = onCreateCategory(name)
-                        if (categories.none { it.id == created.id }) {
-                            categories = categories + created
-                        }
-                        selectedSubcategoryId = null
-                        created
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                if (selectedCategoryId != null) {
-                    SubcategoryPicker(
-                        subcategories = subcategories,
-                        selectedSubcategoryId = selectedSubcategoryId,
-                        onSubcategorySelected = { selectedSubcategoryId = it.id },
-                        onCreateSubcategory = { name ->
-                            val created = onCreateSubcategory(selectedCategoryId!!, name)
-                            subcategories = subcategories + created
-                            created
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+    ExpenseSheet(
+        title = if (expenseToEdit == null) "New household expense" else "Edit expense",
+        amountText = amountText,
+        onAmountChange = { amountText = it },
+        currency = currency,
+        saveEnabled = canSubmit && splitsValid,
+        onDismiss = onDismiss,
+        onSave = {
+            val contributions = effectiveContributions
+            val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
+            onSubmit(
+                selectedCategoryId!!,
+                selectedSubcategoryId,
+                amountMinorUnits!!,
+                paidBy,
+                occurredAt,
+                note,
+                effectiveBeneficiaries.toList(),
+                contributions.toList(),
+            )
+        },
+    ) {
+        CategoryPicker(
+            categories = categories,
+            selectedCategoryId = selectedCategoryId,
+            onCategorySelected = {
+                selectedCategoryId = it.id
+                selectedSubcategoryId = null
+            },
+            onCreateCategory = { name ->
+                val created = onCreateCategory(name)
+                if (categories.none { it.id == created.id }) {
+                    categories = categories + created
                 }
+                selectedSubcategoryId = null
+                created
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-                DateField(label = "Date", occurredAtMillis = occurredAt, onDateSelected = { occurredAt = it }, modifier = Modifier.fillMaxWidth())
-
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                SplitSummaryRow(
-                    label = "Who's it for",
-                    summary = summarizeSplit(effectiveBeneficiaries, beneficiaryCandidates, amountMinorUnits ?: 0L),
-                    onClick = { showBeneficiaryEditor = true },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                )
-                SplitSummaryRow(
-                    label = "Who chipped in",
-                    summary = summarizeSplit(effectiveContributions, contributionCandidates, amountMinorUnits ?: 0L),
-                    onClick = { showContributionEditor = true },
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = canSubmit && splitsValid,
-                onClick = {
-                    val contributions = effectiveContributions
-                    val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
-                    onSubmit(
-                        selectedCategoryId!!,
-                        selectedSubcategoryId,
-                        amountMinorUnits!!,
-                        paidBy,
-                        occurredAt,
-                        note,
-                        effectiveBeneficiaries.toList(),
-                        contributions.toList(),
-                    )
+        if (selectedCategoryId != null) {
+            SubcategoryPicker(
+                subcategories = subcategories,
+                selectedSubcategoryId = selectedSubcategoryId,
+                onSubcategorySelected = { selectedSubcategoryId = it.id },
+                onCreateSubcategory = { name ->
+                    val created = onCreateSubcategory(selectedCategoryId!!, name)
+                    subcategories = subcategories + created
+                    created
                 },
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        DateField(label = "Date", occurredAtMillis = occurredAt, onDateSelected = { occurredAt = it }, modifier = Modifier.fillMaxWidth())
+
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            label = { Text("Note (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        SplitSummaryRow(
+            label = "Who's it for",
+            summary = summarizeSplit(effectiveBeneficiaries, beneficiaryCandidates, amountMinorUnits ?: 0L),
+            onClick = { showBeneficiaryEditor = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        )
+        SplitSummaryRow(
+            label = "Who chipped in",
+            summary = summarizeSplit(effectiveContributions, contributionCandidates, amountMinorUnits ?: 0L),
+            onClick = { showContributionEditor = true },
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    }
 
     if (showBeneficiaryEditor) {
         SplitEditorDialog(
@@ -218,14 +205,3 @@ fun AddHouseholdExpenseDialog(
     }
 }
 
-/** A collapsed row showing the current split's summary, tap to open [SplitEditorDialog]. */
-@Composable
-private fun SplitSummaryRow(label: String, summary: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        TextButton(onClick = onClick) { Text(summary) }
-    }
-}

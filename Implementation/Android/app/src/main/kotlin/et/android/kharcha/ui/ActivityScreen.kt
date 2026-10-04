@@ -45,9 +45,19 @@ import et.android.kharcha.data.BalanceLoader
 import et.core.domain.evaluateBudget
 import et.core.model.Money
 import kotlinx.coroutines.launch
+import et.android.kharcha.ui.theme.kharcha
+import androidx.compose.material.icons.outlined.Luggage
 
 @Composable
-fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, activity: ActivityEntity?) {
+fun ActivityScreen(
+    repo: LocalRepository,
+    activityId: String,
+    myName: String,
+    activity: ActivityEntity?,
+    chrome: SpaceChrome,
+    addRequested: Boolean,
+    onAddHandled: () -> Unit,
+) {
     val participants by repo.observeParticipants(activityId).collectAsState(initial = emptyList())
     val expenses by repo.observeActivityExpenses(activityId).collectAsState(initial = emptyList())
     var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
@@ -60,6 +70,14 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
 
     LaunchedEffect(activityId) {
         repo.ensureMyParticipation(activityId, myName)
+    }
+
+    // The bottom bar's + button. An activity needs participants before an expense can be split.
+    LaunchedEffect(addRequested, participants.isNotEmpty()) {
+        if (addRequested && participants.isNotEmpty()) {
+            showAddExpense = true
+            onAddHandled()
+        }
     }
 
     suspend fun refreshBalances() {
@@ -115,104 +133,93 @@ fun ActivityScreen(repo: LocalRepository, activityId: String, myName: String, ac
     val spent = expenses.sumOf { it.amountMinorUnits }
     val evaluation = current?.let { evaluateBudget(Money(it.budgetMinorUnits, currency), Money(spent, currency)) }
 
-    Scaffold(
-        floatingActionButton = {
-            if (participants.isNotEmpty()) {
-                FloatingActionButton(onClick = { showAddExpense = true }) { Icon(Icons.Filled.Add, contentDescription = "Add Expense") }
-            }
-        },
-    ) { padding ->
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            SpaceTopBar(
+                name = current?.name ?: "Activity",
+                icon = Icons.Outlined.Luggage,
+                myName = chrome.myName,
+                onSwitchSpace = chrome.onSwitchSpace,
+                onSettings = chrome.onSettings,
+                onOpenMe = chrome.onOpenMe,
+            )
+        }
         if (current == null) {
-            Text("Loading…", modifier = Modifier.padding(padding).padding(24.dp))
+            item { Text("Loading…", color = kharcha.muted) }
         } else {
-            LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp)) {
-                item {
-                    Text(current.name, style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(12.dp))
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) { BudgetBar("Overall budget", evaluation) }
-                    }
+            item { BudgetHero("Left of the activity budget", evaluation) }
 
-                    val myBalance = myParticipantId?.let { balances[it] }
-                    if (myBalance != null && myBalance != 0L) {
-                        Spacer(Modifier.height(12.dp))
-                        Card(Modifier.fillMaxWidth()) {
-                            Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(if (myBalance > 0) "You're owed" else "You owe", style = MaterialTheme.typography.titleSmall)
-                                Text(
-                                    formatMoney(kotlin.math.abs(myBalance), currency),
-                                    color = if (myBalance > 0) Teal else Rose,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                            }
+            val myBalance = myParticipantId?.let { balances[it] }
+            if (myBalance != null && myBalance != 0L) {
+                item {
+                    SectionCard {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (myBalance > 0) "You're owed" else "You owe", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                formatMoney(kotlin.math.abs(myBalance), currency),
+                                style = MaterialTheme.typography.titleLarge.tabular(),
+                                color = if (myBalance > 0) kharcha.ok else kharcha.warn,
+                            )
                         }
                     }
+                }
+            }
 
-                    Spacer(Modifier.height(16.dp))
-                    Text("Balances", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            participants.forEach { participant ->
-                                val balance = balances[participant.id]
-                                val label = when {
+            item {
+                SectionCard(title = "Balances", trailing = "${participants.size} ${if (participants.size == 1) "person" else "people"}") {
+                    participants.forEach { participant ->
+                        val balance = balances[participant.id]
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(participant.displayName + if (participant.isMe) " (you)" else "", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                when {
                                     balance == null || balance == 0L -> "settled up"
                                     balance > 0 -> "is owed ${formatMoney(balance, currency)}"
                                     else -> "owes ${formatMoney(-balance, currency)}"
-                                }
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text(participant.displayName)
-                                    Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
+                                },
+                                style = MaterialTheme.typography.bodyMedium.tabular(),
+                                color = when {
+                                    balance == null || balance == 0L -> kharcha.muted
+                                    balance > 0 -> kharcha.ok
+                                    else -> kharcha.warn
+                                },
+                            )
                         }
                     }
-
-                    if (suggestedSettlements.isNotEmpty()) {
-                        Spacer(Modifier.height(16.dp))
-                        Text("Suggested Settlements", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Card(Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp)) {
-                                suggestedSettlements.forEach { s ->
-                                    // s.fromParticipantId/toParticipantId are remote participant ids (straight from the server's response) — never local ids.
-                                    val fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
-                                    val toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("$fromName → $toName: ${formatMoney(s.amount.minorUnits, s.amount.currency)}", modifier = Modifier.weight(1f))
-                                        TextButton(onClick = { settleTarget = s }) { Text("Settle") }
-                                    }
-                                }
-                            }
+                    suggestedSettlements.forEach { s ->
+                        // s.fromParticipantId/toParticipantId are remote participant ids (straight from the server's response) — never local ids.
+                        val fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
+                        val toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("$fromName pays $toName ${formatMoney(s.amount.minorUnits, s.amount.currency)}", style = MaterialTheme.typography.bodyMedium.tabular(), modifier = Modifier.weight(1f))
+                            TonalPill("Settle", onClick = { settleTarget = s })
                         }
-                    }
-
-                    Spacer(Modifier.height(24.dp))
-                    Text("Expenses", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    if (expenses.isEmpty()) {
-                        Text("No expenses recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
+            }
 
-                items(expenses.sortedByDescending { it.occurredAt }) { expense ->
-                    val payerName = participants.find { it.id == expense.paidByParticipantId }?.displayName ?: "?"
-                    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                        Row(Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Paid by $payerName · ${formatExpenseDate(expense.occurredAt)}")
-                                if (expense.note.isNotBlank()) {
-                                    Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(formatMoney(expense.amountMinorUnits, expense.currency), style = MaterialTheme.typography.titleMedium)
-                                Row {
-                                    TextButton(onClick = { expenseToEdit = expense }) { Text("Edit") }
-                                    TextButton(onClick = { expenseToDelete = expense }) { Text("Delete") }
-                                }
-                            }
-                        }
+            item {
+                SectionCard(title = "Expenses", trailing = "${expenses.size} total") {
+                    if (expenses.isEmpty()) {
+                        Text(
+                            if (participants.isEmpty()) "Add participants in this activity's settings, then tap + to add an expense." else "No expenses yet. Tap + to add one.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = kharcha.muted,
+                        )
+                    }
+                    expenses.sortedByDescending { it.occurredAt }.forEach { expense ->
+                        val payerName = participants.find { it.id == expense.paidByParticipantId }?.displayName ?: "someone"
+                        ListRow(
+                            icon = categoryIcon(expense.note),
+                            title = expense.note.ifBlank { "Expense" },
+                            subtitle = "${formatExpenseDate(expense.occurredAt)} · Paid by $payerName",
+                            trailing = formatMoney(expense.amountMinorUnits, expense.currency),
+                            menu = listOf("Edit" to { expenseToEdit = expense }, "Delete" to { expenseToDelete = expense }),
+                        )
                     }
                 }
             }
