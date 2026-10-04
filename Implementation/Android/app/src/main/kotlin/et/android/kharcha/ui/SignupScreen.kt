@@ -22,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 
 private val GENDER_OPTIONS = listOf("Male", "Female", "Other", "Prefer not to say")
 
@@ -32,6 +34,7 @@ private val GENDER_OPTIONS = listOf("Male", "Female", "Other", "Prefer not to sa
  * to any server; the app is fully usable offline from here — connecting
  * to a Windows instance is a separate, optional step from the home screen.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: String?, email: String?) -> Unit) {
     var name by remember { mutableStateOf("") }
@@ -75,8 +78,8 @@ fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: S
                 Text("Gender", style = MaterialTheme.typography.labelLarge)
             }
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(GENDER_OPTIONS) { option ->
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GENDER_OPTIONS.forEach { option ->
                         FilterChip(selected = gender == option, onClick = { gender = if (gender == option) null else option }, label = { Text(option) })
                     }
                 }

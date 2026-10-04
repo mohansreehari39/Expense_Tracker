@@ -25,21 +25,20 @@ sync (via a paired server) is implemented.
   `LocalRepository.saveProfile`. There's no login; this profile's name is
   reused as this device's identity (`isMe` flag) in every household/activity
   it creates or joins.
-- **Home screen after signup**: goes straight to an empty drawer/NavHost
-  shell — no forced connect/pairing gate of any kind. "No households yet /
-  no activities yet — add one from the drawer" until the user creates or
-  joins one.
+- **Home screen after signup**: goes straight to the Summary tab — no
+  forced connect/pairing gate of any kind. It says "No households yet" /
+  "No activities yet" until the user creates or joins one from Spaces.
 - **Create household/activity**: fully local, no server involved — writes
   directly to Room via `LocalRepository.createHousehold`/`createActivity`,
   auto-seeding default categories and this device's own member/participant
   row.
-- **Join Household/Activity** (QR, drawer action): scans the same
+- **Join Household/Activity** (QR; Spaces sheet or Me tab): scans the same
   household/activity QR shown in the Windows app's Settings ("+ Add" — see
   `JoinInvite.kt`). Pulls that household/activity's current state into a
   new or existing *linked* local copy (`SyncEngine.joinHousehold`/
   `joinActivity`) and auto-pairs with the server embedded in the QR if not
   already paired.
-- **Connect to Server** (QR, drawer action): a *separate* device-level
+- **Connect to Server** (QR; Spaces sheet or Me tab): a *separate* device-level
   pairing action, independent of any specific household/activity — scans
   the QR from the Windows app's new "Add Android Device" button
   (`PairAndroidDeviceDialog.kt`). Registers a `PairedServerEntity` keyed by
@@ -53,11 +52,23 @@ sync (via a paired server) is implemented.
   server's current state is pulled and treated as authoritative. A
   household/activity never joined to a server is completely untouched by
   this — see "Sync semantics" below.
-- **Dark/light mode**: a switch in the drawer footer, this device's own
-  choice, not synced with the Windows app's theme setting.
-- **Navigation shell** (`KharchaApp.kt`): a hamburger-icon drawer listing
-  Households/Activities (from Room, reactively via `Flow`), "+" to create
-  either locally, and the two QR actions above.
+- **Dark/light mode**: a switch on the Me tab, this device's own choice,
+  not synced with the Windows app's theme setting. The system status and
+  navigation bars follow it too.
+- **Navigation shell** (`KharchaApp.kt`): a bottom bar — Home (the open
+  household/activity, else the last one), Spaces, a center **+** that adds
+  an expense to the open household/activity, Summary, and Me. Spaces opens
+  a half-height sheet listing Households/Activities (from Room, reactively
+  via `Flow`) with a gear for each one's settings, **+** to create either
+  locally, and the two QR actions above. Me holds the profile, server
+  status with Sync now / Remove, Check for updates and dark mode.
+- **Look** (`ui/theme/Theme.kt`, `ui/KharchaComponents.kt`): a calm green
+  palette with separate light/dark values, Plus Jakarta Sans bundled in
+  `res/font` (OFL, license in `third_party/`), and a small set of shared
+  pieces — one card style, the budget hero, week chips, list rows with
+  icon tiles, the space-switcher pill — that every screen is built from.
+  Adding or editing an expense opens a bottom sheet with a large amount
+  field.
 - **Landing/Summary screen** (`SummaryScreen.kt`): nothing is selected by
   default, so this shows each household's *monthly* budget (computed
   on-device with Core's budget logic, no server needed) plus a rollup of what

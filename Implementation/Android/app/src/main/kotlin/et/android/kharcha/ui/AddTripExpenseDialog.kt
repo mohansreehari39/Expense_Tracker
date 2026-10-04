@@ -76,52 +76,30 @@ fun AddTripExpenseDialog(
     val effectiveContributions = contributionSplit.resolve(amountMinorUnits ?: 0L)
     val splitsValid = amountMinorUnits != null && beneficiarySplit.isValid(amountMinorUnits) && contributionSplit.isValid(amountMinorUnits)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (expenseToEdit == null) "Add Activity Expense" else "Edit Expense") },
-        text = {
-            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = amountText,
-                    onValueChange = { amountText = it },
-                    label = { Text("Amount ($currency)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                DateField(label = "Date", occurredAtMillis = occurredAt, onDateSelected = { occurredAt = it }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = { note = it },
-                    label = { Text("Note (optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Who's it for", style = MaterialTheme.typography.labelMedium)
-                    TextButton(onClick = { showBeneficiaryEditor = true }) {
-                        Text(summarizeSplit(effectiveBeneficiaries, candidates, amountMinorUnits ?: 0L))
-                    }
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Who chipped in", style = MaterialTheme.typography.labelMedium)
-                    TextButton(onClick = { showContributionEditor = true }) {
-                        Text(summarizeSplit(effectiveContributions, candidates, amountMinorUnits ?: 0L))
-                    }
-                }
-            }
+    ExpenseSheet(
+        title = if (expenseToEdit == null) "New activity expense" else "Edit expense",
+        amountText = amountText,
+        onAmountChange = { amountText = it },
+        currency = currency,
+        saveEnabled = canSubmit && splitsValid,
+        onDismiss = onDismiss,
+        onSave = {
+            val contributions = effectiveContributions
+            val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
+            onSubmit(amountMinorUnits!!, paidBy, occurredAt, note, effectiveBeneficiaries.toList(), contributions.toList())
         },
-        confirmButton = {
-            Button(
-                enabled = canSubmit && splitsValid,
-                onClick = {
-                    val contributions = effectiveContributions
-                    val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
-                    onSubmit(amountMinorUnits!!, paidBy, occurredAt, note, effectiveBeneficiaries.toList(), contributions.toList())
-                },
-            ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+    ) {
+        DateField(label = "Date", occurredAtMillis = occurredAt, onDateSelected = { occurredAt = it }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            label = { Text("Note (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        SplitSummaryRow(label = "Who's it for", summary = summarizeSplit(effectiveBeneficiaries, candidates, amountMinorUnits ?: 0L), onClick = { showBeneficiaryEditor = true })
+        SplitSummaryRow(label = "Who chipped in", summary = summarizeSplit(effectiveContributions, candidates, amountMinorUnits ?: 0L), onClick = { showContributionEditor = true })
+    }
 
     if (showBeneficiaryEditor) {
         SplitEditorDialog(

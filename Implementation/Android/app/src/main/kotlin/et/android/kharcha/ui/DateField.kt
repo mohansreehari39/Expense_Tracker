@@ -18,6 +18,9 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material3.Icon
 
 /**
  * Click-to-pick date field — mirrors
@@ -39,7 +42,7 @@ fun DateField(label: String, occurredAtMillis: Long, onDateSelected: (Long) -> U
         onValueChange = {},
         readOnly = true,
         label = { Text(label) },
-        trailingIcon = { IconButton(onClick = { showPicker = true }) { Text("📅") } },
+        trailingIcon = { IconButton(onClick = { showPicker = true }) { Icon(Icons.Outlined.CalendarMonth, contentDescription = "Pick a date") } },
         modifier = modifier,
     )
 

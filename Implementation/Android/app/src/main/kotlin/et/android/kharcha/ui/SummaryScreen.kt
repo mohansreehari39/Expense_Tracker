@@ -34,6 +34,12 @@ import et.core.domain.BudgetEvaluation
 import et.core.domain.evaluateBudget
 import et.core.model.Money
 import java.time.LocalDate
+import androidx.compose.material.icons.Icons
+import androidx.compose.ui.Alignment
+import et.android.kharcha.ui.theme.kharcha
+import androidx.compose.material.icons.outlined.Luggage
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.Color
 
 /**
  * Landing page — nothing is selected yet, so this shows each household's
@@ -47,8 +53,10 @@ fun SummaryScreen(
     repo: LocalRepository,
     households: List<HouseholdEntity>,
     activities: List<ActivityEntity>,
+    myName: String,
     onOpenHousehold: (String) -> Unit,
     onOpenActivity: (String) -> Unit,
+    onOpenMe: () -> Unit,
 ) {
     var monthEvaluations by remember { mutableStateOf<Map<String, BudgetEvaluation?>>(emptyMap()) }
     var owedToYou by remember { mutableStateOf(0L) }
@@ -100,77 +108,84 @@ fun SummaryScreen(
         if (activities.any { it.pairedServerId != null }) publish { loader.forActivity(it) }
     }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item { ScreenTitleBar("Summary", myName = myName, onOpenMe = onOpenMe) }
+
         item {
-            Text("Households", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(8.dp))
-        }
-        if (households.isEmpty()) {
-            item {
-                Text(
-                    "No households yet — add one from the drawer.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OwedTile("You're owed", formatMoney(owedToYou, owedCurrency), kharcha.ok, Modifier.weight(1f))
+                OwedTile("You owe", formatMoney(youOwe, owedCurrency), kharcha.warn, Modifier.weight(1f))
             }
         }
+
+        item { SectionLabel("Households") }
+        if (households.isEmpty()) {
+            item { Text("No households yet. Open Spaces to create or join one.", style = MaterialTheme.typography.bodyMedium, color = kharcha.muted) }
+        }
         items(households) { household ->
-            Card(onClick = { onOpenHousehold(household.id) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(household.name, style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(8.dp))
-                    BudgetBar("This month", monthEvaluations[household.id])
+            Surface(onClick = { onOpenHousehold(household.id) }, shape = MaterialTheme.shapes.large, color = Color.Transparent) {
+                SectionCard(title = household.name, trailing = "This month") {
+                    val evaluation = monthEvaluations[household.id]
+                    if (evaluation == null) {
+                        Text("No monthly budget set", style = MaterialTheme.typography.bodySmall, color = kharcha.muted)
+                    } else {
+                        val left = evaluation.allocated.minorUnits - evaluation.spent.minorUnits
+                        Text(
+                            if (left >= 0) "${formatMoney(left, household.currency)} left of ${formatMoney(evaluation.allocated.minorUnits, household.currency)}"
+                            else "Over by ${formatMoney(-left, household.currency)}",
+                            style = MaterialTheme.typography.bodyMedium.tabular(),
+                            color = if (left >= 0) MaterialTheme.colorScheme.onSurface else kharcha.over,
+                        )
+                        ProgressTrack(
+                            if (evaluation.allocated.minorUnits <= 0) 1f else evaluation.spent.minorUnits.toFloat() / evaluation.allocated.minorUnits,
+                            statusColor(evaluation.status),
+                            height = 6.dp,
+                        )
+                    }
                 }
             }
         }
 
-        if (owedToYou > 0 || youOwe > 0) {
-            item {
-                Spacer(Modifier.height(16.dp))
-                Text("Activities", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column {
-                                Text("You're owed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(formatMoney(owedToYou, owedCurrency), color = Teal, style = MaterialTheme.typography.titleMedium)
-                            }
-                            Column {
-                                Text("You owe", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(formatMoney(youOwe, owedCurrency), color = Rose, style = MaterialTheme.typography.titleMedium)
-                            }
+        item { SectionLabel("Activities") }
+        if (activities.isEmpty()) {
+            item { Text("No activities yet. Trips and events go here.", style = MaterialTheme.typography.bodyMedium, color = kharcha.muted) }
+        }
+        item {
+            if (activities.isNotEmpty()) {
+                SectionCard {
+                    activities.forEachIndexed { index, activity ->
+                        val balance = perActivityBalance[activity.id]
+                        Surface(onClick = { onOpenActivity(activity.id) }, color = Color.Transparent, shape = MaterialTheme.shapes.medium) {
+                            ListRow(
+                                icon = Icons.Outlined.Luggage,
+                                title = activity.name,
+                                subtitle = when {
+                                    balance == null -> "Open it to set up who you are"
+                                    balance == 0L -> "You're settled up"
+                                    balance > 0 -> "You're owed ${formatMoney(balance, owedCurrency)}"
+                                    else -> "You owe ${formatMoney(-balance, owedCurrency)}"
+                                },
+                                tileBackground = activityTileColor(index),
+                                tileTint = Color.White,
+                            )
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
             }
         }
+    }
+}
 
-        if (activities.isEmpty()) {
-            item {
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    "No activities yet — add one from the drawer.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        items(activities) { activity ->
-            Card(onClick = { onOpenActivity(activity.id) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(activity.name, style = MaterialTheme.typography.titleSmall)
-                    val balance = perActivityBalance[activity.id]
-                    val caption = when {
-                        balance == null -> "Tap to set up who you are in this activity"
-                        balance == 0L -> "You're settled up"
-                        balance > 0 -> "You're owed ${formatMoney(balance, owedCurrency)}"
-                        else -> "You owe ${formatMoney(-balance, owedCurrency)}"
-                    }
-                    Text(caption, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+@Composable
+private fun OwedTile(label: String, amount: String, color: Color, modifier: Modifier = Modifier) {
+    SectionCard(modifier) {
+        Column {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = kharcha.muted)
+            Text(amount, style = MaterialTheme.typography.titleLarge.tabular(), color = color)
         }
     }
 }
