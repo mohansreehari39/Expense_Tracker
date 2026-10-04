@@ -34,19 +34,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.LocalRepository
-import et.android.kharcha.data.RecordTripSettlementRequest
-import et.android.kharcha.data.SuggestedTransferDto
 import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
-import et.android.kharcha.data.BalanceLoader
 import et.core.domain.evaluateBudget
 import et.core.model.Money
 import kotlinx.coroutines.launch
 import et.android.kharcha.ui.theme.kharcha
 import androidx.compose.material.icons.outlined.Luggage
+import et.core.domain.SuggestedTransfer
 
 @Composable
 fun ActivityScreen(
@@ -61,7 +59,7 @@ fun ActivityScreen(
     val participants by repo.observeParticipants(activityId).collectAsState(initial = emptyList())
     val expenses by repo.observeActivityExpenses(activityId).collectAsState(initial = emptyList())
     var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransferDto>>(emptyList()) }
+    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransfer>>(emptyList()) }
     var showAddExpense by remember { mutableStateOf(false) }
     var expenseToEdit by remember { mutableStateOf<ActivityExpenseEntity?>(null) }
     var expenseToDelete by remember { mutableStateOf<ActivityExpenseEntity?>(null) }
@@ -80,50 +78,33 @@ fun ActivityScreen(
         }
     }
 
+    // Recorded payments; refreshes balances when one is added here or arrives by sync.
+    val settlements by repo.observeActivitySettlements(activityId).collectAsState(initial = emptyList())
+
     suspend fun refreshBalances() {
-        val current = activity ?: return
-        val view = BalanceLoader(context, repo).forActivity(current)
-        balances = view.balances
-        suggestedSettlements = view.suggestions
+        val sheet = repo.activityBalanceSheet(activityId)
+        balances = sheet.balances
+        suggestedSettlements = sheet.suggestions
     }
 
-    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
-
-    /** Records [amountMinorUnits] — the full suggestion or a partial payment, as entered in [SettleDialog] — on the server. */
-    suspend fun recordSettlement(s: SuggestedTransferDto, amountMinorUnits: Long) {
-        val remoteId = activity?.remoteId
-        val pairedServerId = activity?.pairedServerId
-        if (remoteId != null && pairedServerId != null) {
-            val server = repo.pairedServer(pairedServerId)
-            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-            api?.let {
-                runCatching {
-                    it.recordTripSettlement(
-                        remoteId,
-                        RecordTripSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency),
-                    )
-                }
-            }
-            refreshBalances()
-        }
-    }
+    var settleTarget by remember { mutableStateOf<SuggestedTransfer?>(null) }
 
     settleTarget?.let { s ->
-        // Suggestions carry remote ids (straight from the server's response) — never local ids.
         SettleDialog(
-            fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
-            toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            fromName = participants.find { it.id == s.fromParticipantId }?.displayName ?: "?",
+            toName = participants.find { it.id == s.toParticipantId }?.displayName ?: "?",
             owedMinorUnits = s.amount.minorUnits,
             currency = s.amount.currency,
             onDismiss = { settleTarget = null },
             onConfirm = { amountMinorUnits ->
                 settleTarget = null
-                scope.launch { recordSettlement(s, amountMinorUnits) }
+                // Recorded on this phone (works offline) and synced like any other change.
+                scope.launch { repo.recordActivitySettlement(activityId, s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency) }
             },
         )
     }
 
-    LaunchedEffect(activityId, participants, expenses, activity?.pairedServerId) {
+    LaunchedEffect(activityId, participants, expenses, settlements) {
         refreshBalances()
     }
 
@@ -191,9 +172,8 @@ fun ActivityScreen(
                         }
                     }
                     suggestedSettlements.forEach { s ->
-                        // s.fromParticipantId/toParticipantId are remote participant ids (straight from the server's response) — never local ids.
-                        val fromName = participants.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
-                        val toName = participants.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                        val fromName = participants.find { it.id == s.fromParticipantId }?.displayName ?: "?"
+                        val toName = participants.find { it.id == s.toParticipantId }?.displayName ?: "?"
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Text("$fromName pays $toName ${formatMoney(s.amount.minorUnits, s.amount.currency)}", style = MaterialTheme.typography.bodyMedium.tabular(), modifier = Modifier.weight(1f))
                             TonalPill("Settle", onClick = { settleTarget = s })

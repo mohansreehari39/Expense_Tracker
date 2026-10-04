@@ -38,12 +38,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.contains
 import et.android.kharcha.data.LocalRepository
-import et.android.kharcha.data.RecordHouseholdSettlementRequest
-import et.android.kharcha.data.SuggestedTransferDto
 import et.android.kharcha.data.SyncEngine
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
-import et.android.kharcha.data.BalanceLoader
 import et.core.domain.DateRange
 import et.core.domain.WeeklyBudget
 import et.core.domain.evaluateBudget
@@ -55,6 +52,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import et.android.kharcha.ui.theme.kharcha
 import androidx.compose.material.icons.outlined.Home
+import et.core.domain.SuggestedTransfer
 
 private fun occurredOn(occurredAt: Long): LocalDate =
     Instant.ofEpochMilli(occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
@@ -80,7 +78,7 @@ fun HouseholdScreen(
     var expenseToEdit by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
     var expenseToDelete by remember { mutableStateOf<HouseholdExpenseEntity?>(null) }
     var balances by remember { mutableStateOf<Map<String, Long>>(emptyMap()) }
-    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransferDto>>(emptyList()) }
+    var suggestedSettlements by remember { mutableStateOf<List<SuggestedTransfer>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val today = remember { LocalDate.now() }
@@ -101,55 +99,41 @@ fun HouseholdScreen(
     val currency = currentHousehold?.currency ?: "INR"
     val myMemberId = members.find { it.isMe }?.id
 
+    // Recorded payments; refreshes balances when one is added here or arrives by sync.
+    val settlements by repo.observeHouseholdSettlements(householdId).collectAsState(initial = emptyList())
+    // The Windows app can override the budget for a single month; that wins over the default.
+    val monthOverride by repo.observeMonthBudgetOverride(householdId, today.year, today.monthValue).collectAsState(initial = null)
+    val monthBudget = monthOverride?.totalMinorUnits ?: currentHousehold?.defaultBudgetMinorUnits
+
     suspend fun refreshBalances() {
-        val household = currentHousehold
-        val view = household?.let { BalanceLoader(context, repo).forHousehold(it) }
-        balances = view?.balances ?: emptyMap()
-        suggestedSettlements = view?.suggestions ?: emptyList()
+        val sheet = if (currentHousehold?.settlementEnabled == true) repo.householdBalanceSheet(householdId) else null
+        balances = sheet?.balances ?: emptyMap()
+        suggestedSettlements = sheet?.suggestions ?: emptyList()
     }
 
-    var settleTarget by remember { mutableStateOf<SuggestedTransferDto?>(null) }
-
-    /** Records [amountMinorUnits] — the full suggestion or a partial payment, as entered in [SettleDialog] — on the server. */
-    suspend fun recordSettlement(s: SuggestedTransferDto, amountMinorUnits: Long) {
-        val remoteId = currentHousehold?.remoteId
-        val pairedServerId = currentHousehold?.pairedServerId
-        if (remoteId != null && pairedServerId != null) {
-            val server = repo.pairedServer(pairedServerId)
-            val api = server?.let { runCatching { SyncEngine.resolveApiClient(context, it, repo) }.getOrNull() }
-            api?.let {
-                runCatching {
-                    it.recordHouseholdSettlement(
-                        remoteId,
-                        RecordHouseholdSettlementRequest(s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency),
-                    )
-                }
-            }
-        }
-        refreshBalances()
-    }
+    var settleTarget by remember { mutableStateOf<SuggestedTransfer?>(null) }
 
     settleTarget?.let { s ->
-        // Suggestions carry remote ids (straight from the server's response) — never local ids.
         SettleDialog(
-            fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId,
-            toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId,
+            fromName = members.find { it.id == s.fromParticipantId }?.displayName ?: "?",
+            toName = members.find { it.id == s.toParticipantId }?.displayName ?: "?",
             owedMinorUnits = s.amount.minorUnits,
             currency = s.amount.currency,
             onDismiss = { settleTarget = null },
             onConfirm = { amountMinorUnits ->
                 settleTarget = null
-                scope.launch { recordSettlement(s, amountMinorUnits) }
+                // Recorded on this phone (works offline) and synced like any other change.
+                scope.launch { repo.recordHouseholdSettlement(householdId, s.fromParticipantId, s.toParticipantId, amountMinorUnits, s.amount.currency) }
             },
         )
     }
 
-    LaunchedEffect(householdId, members, expenses, currentHousehold?.settlementEnabled, currentHousehold?.pairedServerId) {
+    LaunchedEffect(householdId, members, expenses, settlements, currentHousehold?.settlementEnabled) {
         refreshBalances()
     }
 
     val monthExpenses = expenses.filter { occurredOn(it.occurredAt).monthValue == today.monthValue && occurredOn(it.occurredAt).year == today.year }
-    val monthEvaluation = currentHousehold?.defaultBudgetMinorUnits?.let {
+    val monthEvaluation = monthBudget?.let {
         evaluateBudget(Money(it, currency), Money(monthExpenses.sumOf { e -> e.amountMinorUnits }, currency))
     }
 
@@ -159,7 +143,7 @@ fun HouseholdScreen(
         weekIndex = if (currentIndex >= 0) currentIndex else 0
     }
     // Every week's figures (rollover applied), so each chip can show what's left in it.
-    val weekEvaluations = currentHousehold?.defaultBudgetMinorUnits?.let { budget ->
+    val weekEvaluations = monthBudget?.let { budget ->
         val spentByWeek = weeks.map { w -> monthExpenses.filter { inRange(it.occurredAt, w) }.sumOf { it.amountMinorUnits } }
         val allocations = WeeklyBudget.rolloverAdjustedAllocations(
             Money(budget, currency),
@@ -245,11 +229,10 @@ fun HouseholdScreen(
                         }
                     }
                     suggestedSettlements.forEach { s ->
-                        // s.fromParticipantId/toParticipantId are remote member ids (straight from the server's response) — never local ids.
-                        val fromName = members.find { it.remoteId == s.fromParticipantId }?.displayName ?: s.fromParticipantId
-                        val toName = members.find { it.remoteId == s.toParticipantId }?.displayName ?: s.toParticipantId
+                        val fromName = members.find { it.id == s.fromParticipantId }?.displayName ?: "?"
+                        val toName = members.find { it.id == s.toParticipantId }?.displayName ?: "?"
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("$fromName pays $toName ${formatMoney(s.amount)}", style = MaterialTheme.typography.bodyMedium.tabular(), modifier = Modifier.weight(1f))
+                            Text("$fromName pays $toName ${formatMoney(s.amount.minorUnits, s.amount.currency)}", style = MaterialTheme.typography.bodyMedium.tabular(), modifier = Modifier.weight(1f))
                             TonalPill("Settle", onClick = { settleTarget = s })
                         }
                     }

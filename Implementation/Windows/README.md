@@ -44,10 +44,20 @@ dated across the current week/month so the weekly
 chart and category breakdown aren't empty either.
 
 What works right now:
-- SQLDelight persistence (`app/src/main/sqldelight/et/windows/db/sql/Schema.sq`)
-  — the same two-tier design as Design/Core: an `operationLog` table plus
-  materialized entity tables. Every write also appends to the log so a
-  later sync pass doesn't need a schema change.
+- SQLDelight persistence (`app/src/main/sqldelight/et/windows/db/sql/Schema.sq`).
+  Every synced table carries `updatedAt` (Hybrid Logical Clock stamp),
+  `isDeleted` (tombstone) and `serverSeq` (this server's write sequence).
+  Every write — the app's own screens via `SqlDelightRepository`, or a
+  phone's push via `SyncStore` — goes through one `Stamper`, so stamps and
+  sequence numbers are handed out in the order writes land.
+- **Record sync** (`db/SyncStore.kt`, routes `POST /api/v1/sync/push` and
+  `GET /api/v1/sync/pull`, contract in `Implementation/Core/api`): phones
+  push the records they changed; the later stamp wins; the same record
+  pushed twice is stored once (ids come from the device that created the
+  record). Pulls return everything changed since a cursor, tombstones
+  included. Tested in `app/src/test` (`SyncStoreTest`, plus
+  `MigrationTest`, which upgrades a database created by the v0.1.2
+  schema). The `operationLog` table is still written but nothing reads it.
 - **Categories** are mutable per household, not a fixed list: the Add
   Expense dialog's category field (`CategoryPicker.kt`) is a searchable
   create-or-select dropdown — typing filters existing categories, and a
@@ -236,8 +246,8 @@ proper installer.
   yet to actually record a `Settlement` from a suggestion.
 - The full JVM `Transport`/`SyncChannel` binary sync protocol from
   [Design/Windows/02-transport-implementation.md](../../Design/Windows/02-transport-implementation.md)
-  — nothing does real operation-log sync with another device yet; this app
-  only talks to itself. What *does* exist: this server advertises itself
+  — phones sync with this server through record sync over REST instead
+  (see above). Separately, this server advertises itself
   on the LAN via mDNS (`server/LanAdvertiser.kt`, JmDNS, same service type
   `_expensetracker._tcp.local.` the design doc anticipated) purely so the
   Android app can find its current address without a manual IP — a much

@@ -28,8 +28,6 @@ import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
-import et.android.kharcha.data.BalanceLoader
-import et.android.kharcha.data.BalanceView
 import et.core.domain.BudgetEvaluation
 import et.core.domain.evaluateBudget
 import et.core.model.Money
@@ -68,7 +66,7 @@ fun SummaryScreen(
     LaunchedEffect(households) {
         val today = LocalDate.now()
         monthEvaluations = households.associate { household ->
-            val budget = household.defaultBudgetMinorUnits
+            val budget = repo.monthBudget(household.id, today.year, today.monthValue)
             val evaluation = if (budget == null) {
                 null
             } else {
@@ -84,28 +82,21 @@ fun SummaryScreen(
         }
     }
 
-    // Same BalanceLoader as the activity screen, so the two can never show
-    // different dues for the same activity. Local figures go up first (instant),
-    // then get replaced by the server's settlement-aware ones once it answers.
+    // The same on-device calculation as the activity screen, so the two never disagree.
     LaunchedEffect(activities) {
-        val loader = BalanceLoader(context, repo)
-        suspend fun publish(viewFor: suspend (ActivityEntity) -> BalanceView) {
-            var owed = 0L
-            var owe = 0L
-            val breakdown = mutableMapOf<String, Long>()
-            for (activity in activities) {
-                val myParticipant = repo.myParticipant(activity.id) ?: continue
-                val balance = viewFor(activity).balances[myParticipant.id] ?: continue
-                breakdown[activity.id] = balance
-                owedCurrency = activity.currency
-                if (balance > 0) owed += balance else owe += -balance
-            }
-            owedToYou = owed
-            youOwe = owe
-            perActivityBalance = breakdown
+        var owed = 0L
+        var owe = 0L
+        val breakdown = mutableMapOf<String, Long>()
+        for (activity in activities) {
+            val myParticipant = repo.myParticipant(activity.id) ?: continue
+            val balance = repo.activityBalanceSheet(activity.id).balances[myParticipant.id] ?: continue
+            breakdown[activity.id] = balance
+            owedCurrency = activity.currency
+            if (balance > 0) owed += balance else owe += -balance
         }
-        publish { loader.localForActivity(it) }
-        if (activities.any { it.pairedServerId != null }) publish { loader.forActivity(it) }
+        owedToYou = owed
+        youOwe = owe
+        perActivityBalance = breakdown
     }
 
     LazyColumn(

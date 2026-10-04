@@ -354,9 +354,9 @@ into a dated sub-list below once actually shipped.
 **Planned for V1.5, not yet shipped:**
 - [x] Edit profile on Android (name/age/gender/phone/email) — Me → Edit
       profile, same fields and rules as signup (PR #20, not yet
-      released). Keeps the device identity; a new name applies to
-      households/activities that live only on the phone, while ones on a
-      server keep the joined name until member rename exists (V2.5).
+      released). Keeps the device identity; with record sync the new name
+      reaches the server and every other device, and past expenses follow
+      since they store ids.
 
 ### V2 — planned
 
@@ -390,9 +390,10 @@ Android-to-Android focus.
       reclaims a backgrounded/killed process).
 - [ ] Notifications on either platform (budget alerts, sync events).
 - [ ] Windows system tray / start-on-login.
-- [ ] Conflict resolution beyond "server wins, local queues pushes" —
-      concurrent edits to the same expense from two synced devices aren't
-      reconciled, just last-pull-wins.
+- [x] ~~Conflict resolution beyond "server wins"~~ — replaced by record
+      sync (PR #20): one id per record everywhere, Hybrid Logical Clock
+      stamps with last-write-wins, tombstone deletes, and per-record
+      pending/synced state. Field-level merging is not planned.
 - [ ] The full binary `Transport`/`SyncChannel` operation-log sync
       protocol from `Design/Windows/02-transport-implementation.md` isn't
       wired up — REST is used as an interim sync transport instead; mDNS

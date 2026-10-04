@@ -5,6 +5,7 @@ import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.ActivityExpenseBeneficiaryEntity
 import et.android.kharcha.data.local.ActivityExpenseContributionEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
+import et.android.kharcha.data.local.ActivitySettlementEntity
 import et.android.kharcha.data.local.AppDatabase
 import et.android.kharcha.data.local.CategoryEntity
 import et.android.kharcha.data.local.HouseholdDependentEntity
@@ -12,28 +13,65 @@ import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.data.local.HouseholdExpenseBeneficiaryEntity
 import et.android.kharcha.data.local.HouseholdExpenseContributionEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
+import et.android.kharcha.data.local.HouseholdSettlementEntity
 import et.android.kharcha.data.local.MemberEntity
 import et.android.kharcha.data.local.PairedServerEntity
 import et.android.kharcha.data.local.ParticipantEntity
 import et.android.kharcha.data.local.ProfileEntity
 import et.android.kharcha.data.local.SubcategoryEntity
+import et.core.domain.DebtSimplification
 import et.core.domain.HouseholdBalances
+import et.core.domain.SuggestedTransfer
 import et.core.domain.TripBalances
+import et.core.model.Hlc
+import et.core.model.HlcClock
+import et.core.model.encode
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 private val DEFAULT_CATEGORIES = listOf("Groceries", "Utilities", "Rent", "Eating Out", "Other")
 
 /**
+ * This phone's Hybrid Logical Clock — one per process, shared by every
+ * [LocalRepository] and [SyncLocalStore], so stamps from this device are
+ * unique and always increase.
+ */
+internal object LocalClock {
+    private var clock: HlcClock? = null
+
+    @Synchronized
+    fun tick(deviceId: String): Hlc = (clock ?: HlcClock(deviceId).also { clock = it }).tick()
+
+    /** Keep this clock ahead of a stamp just received from another device. */
+    @Synchronized
+    fun receive(deviceId: String, remote: Hlc) {
+        (clock ?: HlcClock(deviceId).also { clock = it }).receive(remote)
+    }
+}
+
+/** Balances (local member/participant id → minor units, positive = owed) and the payments that would settle them. */
+data class BalanceSheet(val balances: Map<String, Long>, val suggestions: List<SuggestedTransfer>)
+
+/**
  * The app's single source of truth — everything the UI reads/writes goes
  * through here, into the local Room database (see "Why local-first" in
  * Implementation/Android/README.md). A household/activity works fully
- * standalone with no server at all; [SyncEngine] separately reconciles
- * anything linked to a [PairedServerEntity] whenever that server is
- * reachable, but nothing here depends on that happening.
+ * standalone with no server at all.
+ *
+ * Every write stamps the record (updatedAt, from [LocalClock]) and marks it
+ * dirty, i.e. waiting to sync. Deletes leave a tombstone. [SyncEngine]
+ * pushes dirty records and pulls other devices' changes when a server is
+ * reachable; the later stamp wins (see et.core.api.SyncRecords).
  */
 class LocalRepository(context: Context) {
     private val db = AppDatabase.get(context)
+    private var cachedDeviceId: String? = null
+
+    private suspend fun deviceId(): String =
+        cachedDeviceId ?: (db.profileDao().get()?.deviceId ?: "unregistered").also { if (it != "unregistered") cachedDeviceId = it }
+
+    /** A fresh stamp for a change made on this phone. */
+    private suspend fun stamp(): String = LocalClock.tick(deviceId()).encode()
 
     // -- Profile --------------------------------------------------------
 
@@ -47,23 +85,22 @@ class LocalRepository(context: Context) {
 
     /**
      * Me → Edit profile. Keeps the deviceId (via [saveProfile]), so this is
-     * still the same person everywhere. A changed name is also applied to
-     * "me" in households/activities that exist only on this phone; linked
-     * ones are left alone, since the next pull would restore the server's
-     * name anyway (the server has no member rename yet). New phone/email
-     * are used the next time this device joins a household.
+     * still the same person everywhere. "Me" in every household and
+     * activity is updated and marked to sync, so the new name (and, for
+     * households, phone/email) reaches the server and other devices.
      */
     suspend fun updateProfile(name: String, age: Int?, gender: String?, phone: String?, email: String?) {
         saveProfile(name, age, gender, phone, email)
-        for (household in unlinkedHouseholds()) {
-            db.memberDao().getMe(household.id)?.let { me ->
-                if (me.displayName != name) db.memberDao().upsert(me.copy(displayName = name))
-            }
+        val deviceId = deviceId()
+        for (household in db.householdDao().getLinked() + db.householdDao().getUnlinked()) {
+            val me = db.memberDao().getMe(household.id) ?: continue
+            val updated = me.copy(displayName = name, email = email, phone = phone, deviceId = deviceId)
+            if (updated != me) db.memberDao().upsert(updated.copy(updatedAt = stamp(), dirty = true))
         }
-        for (activity in unlinkedActivities()) {
-            db.participantDao().getMe(activity.id)?.let { me ->
-                if (me.displayName != name) db.participantDao().upsert(me.copy(displayName = name))
-            }
+        for (activity in db.activityDao().getLinked() + db.activityDao().getUnlinked()) {
+            val me = db.participantDao().getMe(activity.id) ?: continue
+            val updated = me.copy(displayName = name, deviceId = deviceId)
+            if (updated != me) db.participantDao().upsert(updated.copy(updatedAt = stamp(), dirty = true))
         }
     }
 
@@ -87,13 +124,13 @@ class LocalRepository(context: Context) {
         db.pairedServerDao().upsert(existing.copy(lastSyncSuccessAt = at, lastSyncError = null))
     }
 
-    /** Records why the most recent sync attempt against this server failed, so the drawer can show more than a bare "Offline" — see [SyncEngine]. Doesn't touch [PairedServerEntity.lastSyncSuccessAt], so "Offline" staleness is still judged purely by how long ago the last *success* was. */
+    /** Records why the most recent sync attempt against this server failed, so Me can show more than a bare "Offline" — see [SyncEngine]. Doesn't touch [PairedServerEntity.lastSyncSuccessAt], so "Offline" staleness is still judged purely by how long ago the last *success* was. */
     suspend fun markPairedServerSyncError(id: String, message: String) {
         val existing = db.pairedServerDao().get(id) ?: return
         db.pairedServerDao().upsert(existing.copy(lastSyncError = message))
     }
 
-    /** Manual "Remove Server" (drawer) or automatic forget-on-revoke (SyncEngine, when the server rejects our pairingKey). Linked households/activities are untouched — they just stop syncing since their pairedServerId no longer matches any row here. */
+    /** Manual "Remove" (Me tab) or automatic forget-on-revoke (SyncEngine, when the server rejects our pairingKey). Linked households/activities are untouched — they just stop syncing since their pairedServerId no longer matches any row here. */
     suspend fun forgetPairedServer(id: String) {
         db.pairedServerDao().delete(id)
     }
@@ -105,10 +142,25 @@ class LocalRepository(context: Context) {
     suspend fun linkedHouseholds(): List<HouseholdEntity> = db.householdDao().getLinked()
     suspend fun unlinkedHouseholds(): List<HouseholdEntity> = db.householdDao().getUnlinked()
 
-    /** Called by SyncEngine once a household created locally (never joined/paired) has been created on a server for the first time — from then on it syncs like any other linked household. */
-    suspend fun linkHousehold(householdId: String, pairedServerId: String, remoteId: String) {
+    /** Links a household that so far lived only on this phone to [pairedServerId]. Its records are already dirty, so the next sync uploads them under the ids they have now. */
+    suspend fun linkHousehold(householdId: String, pairedServerId: String) {
         val existing = db.householdDao().get(householdId) ?: return
-        db.householdDao().upsert(existing.copy(pairedServerId = pairedServerId, remoteId = remoteId))
+        db.householdDao().upsert(existing.copy(pairedServerId = pairedServerId))
+    }
+
+    private suspend fun myMemberRow(householdId: String, name: String): MemberEntity {
+        val profile = currentProfile()
+        return MemberEntity(
+            id = UUID.randomUUID().toString(),
+            householdId = householdId,
+            displayName = name,
+            isMe = true,
+            deviceId = deviceId(),
+            email = profile?.email,
+            phone = profile?.phone,
+            updatedAt = stamp(),
+            dirty = true,
+        )
     }
 
     suspend fun createHousehold(name: String, myName: String): HouseholdEntity {
@@ -120,71 +172,88 @@ class LocalRepository(context: Context) {
             pairedServerId = null,
             remoteId = null,
             createdAt = System.currentTimeMillis(),
+            updatedAt = stamp(),
+            dirty = true,
         )
         db.householdDao().upsert(household)
         for (categoryName in DEFAULT_CATEGORIES) {
-            db.categoryDao().upsert(CategoryEntity(UUID.randomUUID().toString(), household.id, categoryName))
+            db.categoryDao().upsert(CategoryEntity(UUID.randomUUID().toString(), household.id, categoryName, updatedAt = stamp(), dirty = true))
         }
-        db.memberDao().upsert(MemberEntity(UUID.randomUUID().toString(), household.id, myName, isMe = true))
+        db.memberDao().upsert(myMemberRow(household.id, myName))
         return household
     }
 
-    /** Rename/re-budget a household from Android — mirrors Windows' Household Settings dialog. Marks the edit pending if this household is linked, so SyncEngine pushes it before the next pull. */
+    /** Rename/re-budget a household from Android — mirrors Windows' Household Settings dialog. */
     suspend fun updateHouseholdConfig(householdId: String, name: String, budgetMinorUnits: Long?, currency: String, settlementEnabled: Boolean) {
         val existing = db.householdDao().get(householdId) ?: return
-        val linked = existing.pairedServerId != null
         db.householdDao().upsert(
             existing.copy(
                 name = name,
                 defaultBudgetMinorUnits = budgetMinorUnits,
                 currency = currency,
                 settlementEnabled = settlementEnabled,
-                pendingConfigSync = linked,
+                updatedAt = stamp(),
+                dirty = true,
             ),
         )
     }
 
     /**
-     * Net balance per member (positive = owed), computed on-device by Core's
-     * [HouseholdBalances] — the same calculation the server runs — from the
-     * stored "who's it for" / "who chipped in" rows. Settlements are only
-     * recorded on the server, so this local figure ignores them; prefer the
-     * server's balances when reachable (see [BalanceLoader]). Only
-     * meaningful when the household has opted in via
-     * [HouseholdEntity.settlementEnabled].
+     * The budget in effect for [year]/[month]: that month's override if the
+     * Windows app set one, else the household's default. Null when neither
+     * exists.
      */
-    suspend fun householdBalances(householdId: String): Map<String, Long> {
-        val household = household(householdId) ?: return emptyMap()
+    suspend fun monthBudget(householdId: String, year: Int, month: Int): Long? =
+        db.monthlyBudgetDao().getFor(householdId, year, month)?.totalMinorUnits ?: household(householdId)?.defaultBudgetMinorUnits
+
+    fun observeMonthBudgetOverride(householdId: String, year: Int, month: Int) = db.monthlyBudgetDao().observeFor(householdId, year, month)
+
+    /**
+     * Who owes whom in a household, computed on-device by Core's
+     * [HouseholdBalances] — the same calculation the server runs — from the
+     * stored "who's it for" / "who chipped in" rows and every recorded
+     * settlement. Works offline. Only meaningful when the household has
+     * opted in via [HouseholdEntity.settlementEnabled].
+     */
+    suspend fun householdBalanceSheet(householdId: String): BalanceSheet {
+        val household = household(householdId) ?: return BalanceSheet(emptyMap(), emptyList())
         val expenses = householdExpenses(householdId)
-        return HouseholdBalances.netBalances(
+        val balances = HouseholdBalances.netBalances(
             memberIds = members(householdId).filter { !it.isArchived }.map { it.id },
             expenses = expenses.map { it.toCore() },
             beneficiaries = expenses.flatMap { householdExpenseBeneficiaries(it.id) }.map { it.toCore() },
             contributions = expenses.flatMap { householdExpenseContributions(it.id) }.map { it.toCore() },
-            settlements = emptyList(),
+            settlements = db.householdSettlementDao().getAll(householdId).map { it.toCore() },
             currency = household.currency,
-        ).mapValues { it.value.minorUnits }
+        )
+        return BalanceSheet(balances.mapValues { it.value.minorUnits }, DebtSimplification.simplify(balances))
+    }
+
+    fun observeHouseholdSettlements(householdId: String) = db.householdSettlementDao().observeAll(householdId)
+
+    /** A payment that settles (all or part of) a debt: [fromMemberId] paid [toMemberId]. */
+    suspend fun recordHouseholdSettlement(householdId: String, fromMemberId: String, toMemberId: String, amountMinorUnits: Long, currency: String) {
+        db.householdSettlementDao().upsert(
+            HouseholdSettlementEntity(
+                id = UUID.randomUUID().toString(),
+                householdId = householdId,
+                fromMemberId = fromMemberId,
+                toMemberId = toMemberId,
+                amountMinorUnits = amountMinorUnits,
+                currency = currency,
+                settledAt = System.currentTimeMillis(),
+                updatedAt = stamp(),
+                dirty = true,
+            ),
+        )
     }
 
     /** Rename/re-budget an activity from Android — mirrors Windows' Activity Settings dialog. */
     suspend fun updateActivityConfig(activityId: String, name: String, budgetMinorUnits: Long, currency: String) {
         val existing = db.activityDao().get(activityId) ?: return
-        val linked = existing.pairedServerId != null
         db.activityDao().upsert(
-            existing.copy(name = name, budgetMinorUnits = budgetMinorUnits, currency = currency, pendingConfigSync = linked),
+            existing.copy(name = name, budgetMinorUnits = budgetMinorUnits, currency = currency, updatedAt = stamp(), dirty = true),
         )
-    }
-
-    /** Called by SyncEngine once a locally-edited household's name/budget has been pushed to its linked server. */
-    suspend fun clearHouseholdConfigPending(householdId: String) {
-        val existing = db.householdDao().get(householdId) ?: return
-        db.householdDao().upsert(existing.copy(pendingConfigSync = false))
-    }
-
-    /** Called by SyncEngine once a locally-edited activity's name/budget has been pushed to its linked server. */
-    suspend fun clearActivityConfigPending(activityId: String) {
-        val existing = db.activityDao().get(activityId) ?: return
-        db.activityDao().upsert(existing.copy(pendingConfigSync = false))
     }
 
     fun observeCategories(householdId: String): Flow<List<CategoryEntity>> = db.categoryDao().observeActive(householdId)
@@ -194,15 +263,9 @@ class LocalRepository(context: Context) {
         val trimmed = name.trim()
         val existing = db.categoryDao().getAll(householdId).find { it.name.equals(trimmed, ignoreCase = true) && !it.isArchived }
         if (existing != null) return existing
-        val category = CategoryEntity(UUID.randomUUID().toString(), householdId, trimmed)
+        val category = CategoryEntity(UUID.randomUUID().toString(), householdId, trimmed, updatedAt = stamp(), dirty = true)
         db.categoryDao().upsert(category)
         return category
-    }
-
-    /** Called by SyncEngine once a locally-created category (remoteId == null) has been pushed to a linked household's server. */
-    suspend fun markCategorySynced(id: String, remoteId: String) {
-        val category = db.categoryDao().getById(id) ?: return
-        db.categoryDao().upsert(category.copy(remoteId = remoteId))
     }
 
     fun observeSubcategories(categoryId: String): Flow<List<SubcategoryEntity>> = db.subcategoryDao().observeActive(categoryId)
@@ -212,36 +275,27 @@ class LocalRepository(context: Context) {
         val trimmed = name.trim()
         val existing = db.subcategoryDao().getAll(categoryId).find { it.name.equals(trimmed, ignoreCase = true) && !it.isArchived }
         if (existing != null) return existing
-        val subcategory = SubcategoryEntity(UUID.randomUUID().toString(), categoryId, trimmed)
+        val subcategory = SubcategoryEntity(UUID.randomUUID().toString(), categoryId, trimmed, updatedAt = stamp(), dirty = true)
         db.subcategoryDao().upsert(subcategory)
         return subcategory
-    }
-
-    /** Called by SyncEngine once a locally-created subcategory (remoteId == null) has been pushed to a linked household's server. */
-    suspend fun markSubcategorySynced(id: String, remoteId: String) {
-        val subcategory = db.subcategoryDao().getById(id) ?: return
-        db.subcategoryDao().upsert(subcategory.copy(remoteId = remoteId))
-    }
-
-    suspend fun replaceSubcategoriesFromRemote(categoryId: String, subcategories: List<SubcategoryEntity>) {
-        db.subcategoryDao().upsertAll(subcategories)
     }
 
     fun observeMembers(householdId: String): Flow<List<MemberEntity>> = db.memberDao().observeActive(householdId)
     suspend fun members(householdId: String): List<MemberEntity> = db.memberDao().getAll(householdId)
     suspend fun myMember(householdId: String): MemberEntity? = db.memberDao().getMe(householdId)
-    suspend fun hardDeleteMember(id: String) = db.memberDao().delete(id)
 
-    /** Called by SyncEngine once a member of a just-created-remotely household has been pushed, so it resolves to the same remote row instead of duplicating on the next pull. */
-    suspend fun markMemberSynced(member: MemberEntity, remoteId: String) {
-        db.memberDao().upsert(member.copy(remoteId = remoteId))
+    /** Household Settings → Remove. An archive, not a delete: past expenses still name this person. Syncs like any edit. */
+    suspend fun archiveMember(memberId: String) {
+        val member = db.memberDao().getById(memberId) ?: return
+        db.memberDao().upsert(member.copy(isArchived = true, updatedAt = stamp(), dirty = true))
     }
 
-    suspend fun ensureMyMembership(householdId: String, myName: String, remoteId: String? = null): MemberEntity {
+    suspend fun ensureMyMembership(householdId: String, myName: String): MemberEntity {
         myMember(householdId)?.let { return it }
-        val existingByName = db.memberDao().getAll(householdId).find { it.displayName.equals(myName, ignoreCase = true) && !it.isArchived }
-        val member = existingByName?.copy(isMe = true, remoteId = remoteId ?: existingByName.remoteId)
-            ?: MemberEntity(UUID.randomUUID().toString(), householdId, myName, isMe = true, remoteId = remoteId)
+        val deviceId = deviceId()
+        val existing = db.memberDao().getAll(householdId).find { it.deviceId == deviceId }
+            ?: db.memberDao().getAll(householdId).find { it.displayName.equals(myName, ignoreCase = true) && !it.isArchived }
+        val member = existing?.copy(isMe = true, deviceId = deviceId, updatedAt = stamp(), dirty = true) ?: myMemberRow(householdId, myName)
         db.memberDao().upsert(member)
         return member
     }
@@ -254,22 +308,16 @@ class LocalRepository(context: Context) {
         val existing = db.householdDependentDao().getAll(householdId)
             .find { it.category == category && it.name.equals(trimmed, ignoreCase = true) && !it.isArchived }
         if (existing != null) return existing
-        val dependent = HouseholdDependentEntity(UUID.randomUUID().toString(), householdId, trimmed, category)
+        val dependent = HouseholdDependentEntity(UUID.randomUUID().toString(), householdId, trimmed, category, updatedAt = stamp(), dirty = true)
         db.householdDependentDao().upsert(dependent)
         return dependent
     }
 
-    /** Called by SyncEngine once a locally-created dependent (remoteId == null) has been pushed to a linked household's server. */
-    suspend fun markDependentSynced(id: String, remoteId: String) {
-        val dependent = db.householdDependentDao().getById(id) ?: return
-        db.householdDependentDao().upsert(dependent.copy(remoteId = remoteId))
+    /** Household Settings → Remove dependent. An archive: past expenses for them stay. */
+    suspend fun archiveDependent(dependentId: String) {
+        val dependent = db.householdDependentDao().getById(dependentId) ?: return
+        db.householdDependentDao().upsert(dependent.copy(isArchived = true, updatedAt = stamp(), dirty = true))
     }
-
-    suspend fun replaceDependentsFromRemote(householdId: String, dependents: List<HouseholdDependentEntity>) {
-        db.householdDependentDao().upsertAll(dependents)
-    }
-
-    suspend fun hardDeleteDependent(id: String) = db.householdDependentDao().delete(id)
 
     fun observeHouseholdExpenses(householdId: String): Flow<List<HouseholdExpenseEntity>> = db.householdExpenseDao().observeAll(householdId)
     suspend fun householdExpenses(householdId: String): List<HouseholdExpenseEntity> = db.householdExpenseDao().getAll(householdId)
@@ -295,7 +343,6 @@ class LocalRepository(context: Context) {
         beneficiaries: List<Pair<String, Long>>? = null,
         contributions: List<Pair<String, Long>>? = null,
     ) {
-        val linked = db.householdDao().get(householdId)?.pairedServerId != null
         val expenseId = UUID.randomUUID().toString()
         db.householdExpenseDao().upsert(
             HouseholdExpenseEntity(
@@ -309,7 +356,10 @@ class LocalRepository(context: Context) {
                 occurredAt = occurredAt,
                 note = note,
                 remoteId = null,
-                pendingSync = linked,
+                updatedAt = stamp(),
+                dirty = true,
+                createdByDeviceId = deviceId(),
+                createdAt = System.currentTimeMillis(),
             ),
         )
         saveHouseholdExpenseSplits(expenseId, householdId, amountMinorUnits, currency, paidByMemberId, beneficiaries, contributions)
@@ -355,20 +405,13 @@ class LocalRepository(context: Context) {
         beneficiaries: List<Pair<String, Long>>? = null,
         contributions: List<Pair<String, Long>>? = null,
     ) {
-        val linked = db.householdDao().get(expense.householdId)?.pairedServerId != null
-        db.householdExpenseDao().upsert(expense.copy(pendingSync = linked))
+        db.householdExpenseDao().upsert(expense.copy(updatedAt = stamp(), dirty = true))
         saveHouseholdExpenseSplits(expense.id, expense.householdId, expense.amountMinorUnits, expense.currency, expense.paidByMemberId, beneficiaries, contributions)
     }
 
+    /** Leaves a tombstone (so other devices learn about the delete) and hides the expense from every screen. */
     suspend fun deleteHouseholdExpense(expense: HouseholdExpenseEntity) {
-        val linked = db.householdDao().get(expense.householdId)?.pairedServerId != null
-        if (linked && expense.remoteId != null) {
-            db.householdExpenseDao().upsert(expense.copy(pendingDelete = true))
-        } else {
-            db.householdExpenseBeneficiaryDao().deleteForExpense(expense.id)
-            db.householdExpenseContributionDao().deleteForExpense(expense.id)
-            db.householdExpenseDao().deleteHard(expense.id)
-        }
+        db.householdExpenseDao().upsert(expense.copy(isDeleted = true, updatedAt = stamp(), dirty = true))
     }
 
     // -- Activities ---------------------------------------------------------
@@ -378,10 +421,10 @@ class LocalRepository(context: Context) {
     suspend fun linkedActivities(): List<ActivityEntity> = db.activityDao().getLinked()
     suspend fun unlinkedActivities(): List<ActivityEntity> = db.activityDao().getUnlinked()
 
-    /** Called by SyncEngine once an activity created locally (never joined/paired) has been created on a server for the first time — from then on it syncs like any other linked activity. */
-    suspend fun linkActivity(activityId: String, pairedServerId: String, remoteId: String) {
+    /** Links an activity that so far lived only on this phone to [pairedServerId]; see [linkHousehold]. */
+    suspend fun linkActivity(activityId: String, pairedServerId: String) {
         val existing = db.activityDao().get(activityId) ?: return
-        db.activityDao().upsert(existing.copy(pairedServerId = pairedServerId, remoteId = remoteId))
+        db.activityDao().upsert(existing.copy(pairedServerId = pairedServerId))
     }
 
     suspend fun createActivity(name: String, budgetMinorUnits: Long, currency: String, myName: String, otherParticipantNames: List<String>): ActivityEntity {
@@ -394,11 +437,16 @@ class LocalRepository(context: Context) {
             pairedServerId = null,
             remoteId = null,
             createdAt = System.currentTimeMillis(),
+            updatedAt = stamp(),
+            dirty = true,
+            createdBy = deviceId(),
         )
         db.activityDao().upsert(activity)
-        db.participantDao().upsert(ParticipantEntity(UUID.randomUUID().toString(), activity.id, myName, isMe = true))
+        db.participantDao().upsert(
+            ParticipantEntity(UUID.randomUUID().toString(), activity.id, myName, isMe = true, updatedAt = stamp(), dirty = true, deviceId = deviceId()),
+        )
         for (participantName in otherParticipantNames) {
-            db.participantDao().upsert(ParticipantEntity(UUID.randomUUID().toString(), activity.id, participantName))
+            db.participantDao().upsert(ParticipantEntity(UUID.randomUUID().toString(), activity.id, participantName, updatedAt = stamp(), dirty = true))
         }
         return activity
     }
@@ -406,18 +454,20 @@ class LocalRepository(context: Context) {
     fun observeParticipants(activityId: String): Flow<List<ParticipantEntity>> = db.participantDao().observeActive(activityId)
     suspend fun participants(activityId: String): List<ParticipantEntity> = db.participantDao().getAll(activityId)
     suspend fun myParticipant(activityId: String): ParticipantEntity? = db.participantDao().getMe(activityId)
-    suspend fun hardDeleteParticipant(id: String) = db.participantDao().delete(id)
 
-    /** Called by SyncEngine once a participant of a just-created-remotely activity has been matched to its new remote row, so it resolves to the same one instead of duplicating on the next pull. */
-    suspend fun markParticipantSynced(participant: ParticipantEntity, remoteId: String) {
-        db.participantDao().upsert(participant.copy(remoteId = remoteId))
+    /** Activity Settings → Remove participant. An archive: their past expenses stay. */
+    suspend fun archiveParticipant(participantId: String) {
+        val participant = db.participantDao().getById(participantId) ?: return
+        db.participantDao().upsert(participant.copy(isArchived = true, updatedAt = stamp(), dirty = true))
     }
 
-    suspend fun ensureMyParticipation(activityId: String, myName: String, remoteId: String? = null): ParticipantEntity {
+    suspend fun ensureMyParticipation(activityId: String, myName: String): ParticipantEntity {
         myParticipant(activityId)?.let { return it }
-        val existingByName = db.participantDao().getAll(activityId).find { it.displayName.equals(myName, ignoreCase = true) && !it.isArchived }
-        val participant = existingByName?.copy(isMe = true, remoteId = remoteId ?: existingByName.remoteId)
-            ?: ParticipantEntity(UUID.randomUUID().toString(), activityId, myName, isMe = true, remoteId = remoteId)
+        val deviceId = deviceId()
+        val existing = db.participantDao().getAll(activityId).find { it.deviceId == deviceId }
+            ?: db.participantDao().getAll(activityId).find { it.displayName.equals(myName, ignoreCase = true) && !it.isArchived }
+        val participant = existing?.copy(isMe = true, deviceId = deviceId, updatedAt = stamp(), dirty = true)
+            ?: ParticipantEntity(UUID.randomUUID().toString(), activityId, myName, isMe = true, updatedAt = stamp(), dirty = true, deviceId = deviceId)
         db.participantDao().upsert(participant)
         return participant
     }
@@ -438,7 +488,6 @@ class LocalRepository(context: Context) {
         beneficiaries: List<Pair<String, Long>>? = null,
         contributions: List<Pair<String, Long>>? = null,
     ) {
-        val linked = db.activityDao().get(activityId)?.pairedServerId != null
         val expenseId = UUID.randomUUID().toString()
         db.activityExpenseDao().upsert(
             ActivityExpenseEntity(
@@ -450,7 +499,8 @@ class LocalRepository(context: Context) {
                 occurredAt = occurredAt,
                 note = note,
                 remoteId = null,
-                pendingSync = linked,
+                updatedAt = stamp(),
+                dirty = true,
             ),
         )
         saveActivityExpenseSplits(expenseId, activityId, amountMinorUnits, currency, paidByParticipantId, beneficiaries, contributions)
@@ -488,116 +538,46 @@ class LocalRepository(context: Context) {
         beneficiaries: List<Pair<String, Long>>? = null,
         contributions: List<Pair<String, Long>>? = null,
     ) {
-        val linked = db.activityDao().get(expense.activityId)?.pairedServerId != null
-        db.activityExpenseDao().upsert(expense.copy(pendingSync = linked))
+        db.activityExpenseDao().upsert(expense.copy(updatedAt = stamp(), dirty = true))
         saveActivityExpenseSplits(expense.id, expense.activityId, expense.amountMinorUnits, expense.currency, expense.paidByParticipantId, beneficiaries, contributions)
     }
 
+    /** Leaves a tombstone (so other devices learn about the delete) and hides the expense from every screen. */
     suspend fun deleteActivityExpense(expense: ActivityExpenseEntity) {
-        val linked = db.activityDao().get(expense.activityId)?.pairedServerId != null
-        if (linked && expense.remoteId != null) {
-            db.activityExpenseDao().upsert(expense.copy(pendingDelete = true))
-        } else {
-            db.activityExpenseBeneficiaryDao().deleteForExpense(expense.id)
-            db.activityExpenseContributionDao().deleteForExpense(expense.id)
-            db.activityExpenseDao().deleteHard(expense.id)
-        }
+        db.activityExpenseDao().upsert(expense.copy(isDeleted = true, updatedAt = stamp(), dirty = true))
     }
 
-    // -- Sync support (used only by SyncEngine) ------------------------------
-
-    suspend fun upsertHouseholdFromRemote(household: HouseholdEntity) = db.householdDao().upsert(household)
-    suspend fun upsertActivityFromRemote(activity: ActivityEntity) = db.activityDao().upsert(activity)
-
-    suspend fun replaceCategoriesFromRemote(householdId: String, categories: List<CategoryEntity>) {
-        db.categoryDao().upsertAll(categories)
-    }
-
-    suspend fun replaceMembersFromRemote(householdId: String, members: List<MemberEntity>) {
-        val mine = db.memberDao().getMe(householdId)
-        db.memberDao().upsertAll(if (mine != null) members.map { if (it.id == mine.id) it.copy(isMe = true) else it } else members)
-    }
-
-    suspend fun replaceParticipantsFromRemote(activityId: String, participants: List<ParticipantEntity>) {
-        val mine = db.participantDao().getMe(activityId)
-        db.participantDao().upsertAll(if (mine != null) participants.map { if (it.id == mine.id) it.copy(isMe = true) else it } else participants)
-    }
-
-    suspend fun pendingHouseholdExpenses(householdId: String) = db.householdExpenseDao().getPending(householdId)
-    suspend fun pendingActivityExpenses(activityId: String) = db.activityExpenseDao().getPending(activityId)
-
-    suspend fun markHouseholdExpenseSynced(id: String, remoteId: String) {
-        val expense = db.householdExpenseDao().getById(id) ?: return
-        db.householdExpenseDao().upsert(expense.copy(remoteId = remoteId, pendingSync = false))
-    }
-
-    suspend fun markActivityExpenseSynced(id: String, remoteId: String) {
-        val expense = db.activityExpenseDao().getById(id) ?: return
-        db.activityExpenseDao().upsert(expense.copy(remoteId = remoteId, pendingSync = false))
-    }
-
-    suspend fun hardDeleteHouseholdExpense(id: String) = db.householdExpenseDao().deleteHard(id)
-    suspend fun hardDeleteActivityExpense(id: String) = db.activityExpenseDao().deleteHard(id)
-
-    /** Replaces a single expense's beneficiary/contribution rows wholesale from the server's copy — see SyncEngine.pullHousehold. [beneficiaries] is (memberId, dependentId, amount), exactly one of the first two set. */
-    suspend fun replaceHouseholdExpenseSplitsFromRemote(
-        expenseId: String,
-        currency: String,
-        beneficiaries: List<Triple<String?, String?, Long>>,
-        contributions: List<Pair<String, Long>>,
-    ) {
-        db.householdExpenseBeneficiaryDao().deleteForExpense(expenseId)
-        db.householdExpenseBeneficiaryDao().upsertAll(
-            beneficiaries.map { (memberId, dependentId, amount) ->
-                HouseholdExpenseBeneficiaryEntity(UUID.randomUUID().toString(), expenseId, memberId, dependentId, amount, currency)
-            },
-        )
-        db.householdExpenseContributionDao().deleteForExpense(expenseId)
-        db.householdExpenseContributionDao().upsertAll(
-            contributions.map { (memberId, amount) ->
-                HouseholdExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, memberId, amount, currency)
-            },
-        )
-    }
-
-    suspend fun replaceSyncedHouseholdExpenses(householdId: String, expenses: List<HouseholdExpenseEntity>, keepLocalIds: Set<String>) {
-        db.householdExpenseDao().clearSyncedBeforePull(householdId)
-        db.householdExpenseDao().upsertAll(expenses.filterNot { it.id in keepLocalIds })
-    }
-
-    /** Replaces a single expense's beneficiary/contribution rows wholesale from the server's copy — see SyncEngine.pullActivity. */
-    suspend fun replaceActivityExpenseSplitsFromRemote(
-        expenseId: String,
-        currency: String,
-        beneficiaries: List<Pair<String, Long>>,
-        contributions: List<Pair<String, Long>>,
-    ) {
-        db.activityExpenseBeneficiaryDao().deleteForExpense(expenseId)
-        db.activityExpenseBeneficiaryDao().upsertAll(
-            beneficiaries.map { (participantId, amount) -> ActivityExpenseBeneficiaryEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency) },
-        )
-        db.activityExpenseContributionDao().deleteForExpense(expenseId)
-        db.activityExpenseContributionDao().upsertAll(
-            contributions.map { (participantId, amount) -> ActivityExpenseContributionEntity(UUID.randomUUID().toString(), expenseId, participantId, amount, currency) },
-        )
-    }
-
-    suspend fun replaceSyncedActivityExpenses(activityId: String, expenses: List<ActivityExpenseEntity>, keepLocalIds: Set<String>) {
-        db.activityExpenseDao().clearSyncedBeforePull(activityId)
-        db.activityExpenseDao().upsertAll(expenses.filterNot { it.id in keepLocalIds })
-    }
-
-    /** Activity counterpart of [householdBalances] — Core's [TripBalances] over the stored splits/contributions, settlement-blind. */
-    suspend fun activityBalances(activityId: String): Map<String, Long> {
-        val activity = activity(activityId) ?: return emptyMap()
+    /** Activity counterpart of [householdBalanceSheet] — Core's [TripBalances] over the stored splits, contributions and settlements. */
+    suspend fun activityBalanceSheet(activityId: String): BalanceSheet {
+        val activity = activity(activityId) ?: return BalanceSheet(emptyMap(), emptyList())
         val expenses = activityExpenses(activityId)
-        return TripBalances.netBalances(
+        val balances = TripBalances.netBalances(
             participantIds = participants(activityId).filter { !it.isArchived }.map { it.id },
             expenses = expenses.map { it.toCore() },
             splits = expenses.flatMap { activityExpenseBeneficiaries(it.id) }.map { it.toCore() },
             contributions = expenses.flatMap { activityExpenseContributions(it.id) }.map { it.toCore() },
-            settlements = emptyList(),
+            settlements = db.activitySettlementDao().getAll(activityId).map { it.toCore() },
             currency = activity.currency,
-        ).mapValues { it.value.minorUnits }
+        )
+        return BalanceSheet(balances.mapValues { it.value.minorUnits }, DebtSimplification.simplify(balances))
+    }
+
+    fun observeActivitySettlements(activityId: String) = db.activitySettlementDao().observeAll(activityId)
+
+    /** A payment that settles (all or part of) a debt: [fromParticipantId] paid [toParticipantId]. */
+    suspend fun recordActivitySettlement(activityId: String, fromParticipantId: String, toParticipantId: String, amountMinorUnits: Long, currency: String) {
+        db.activitySettlementDao().upsert(
+            ActivitySettlementEntity(
+                id = UUID.randomUUID().toString(),
+                activityId = activityId,
+                fromParticipantId = fromParticipantId,
+                toParticipantId = toParticipantId,
+                amountMinorUnits = amountMinorUnits,
+                currency = currency,
+                settledAt = System.currentTimeMillis(),
+                updatedAt = stamp(),
+                dirty = true,
+            ),
+        )
     }
 }

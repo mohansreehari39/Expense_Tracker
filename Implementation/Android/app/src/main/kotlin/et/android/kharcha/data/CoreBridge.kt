@@ -3,6 +3,8 @@ package et.android.kharcha.data
 import et.android.kharcha.data.local.ActivityExpenseBeneficiaryEntity
 import et.android.kharcha.data.local.ActivityExpenseContributionEntity
 import et.android.kharcha.data.local.ActivityExpenseEntity
+import et.android.kharcha.data.local.ActivitySettlementEntity
+import et.android.kharcha.data.local.HouseholdSettlementEntity
 import et.android.kharcha.data.local.HouseholdExpenseBeneficiaryEntity
 import et.android.kharcha.data.local.HouseholdExpenseContributionEntity
 import et.android.kharcha.data.local.HouseholdExpenseEntity
@@ -13,6 +15,8 @@ import et.core.model.ExpenseSplit
 import et.core.model.HouseholdExpense
 import et.core.model.HouseholdExpenseBeneficiary
 import et.core.model.HouseholdExpenseContribution
+import et.core.model.HouseholdSettlement
+import et.core.model.Settlement
 import et.core.model.Money
 import et.core.model.TripExpense
 import et.core.model.TripExpenseContribution
@@ -76,3 +80,9 @@ fun ActivityExpenseBeneficiaryEntity.toCore() =
 
 fun ActivityExpenseContributionEntity.toCore() =
     TripExpenseContribution(id, activityExpenseId, participantId, Money(amountMinorUnits, currency))
+
+fun HouseholdSettlementEntity.toCore() =
+    HouseholdSettlement(id, householdId, fromMemberId, toMemberId, Money(amountMinorUnits, currency), settledAt, note)
+
+fun ActivitySettlementEntity.toCore() =
+    Settlement(id, activityId, fromParticipantId, toParticipantId, Money(amountMinorUnits, currency), settledAt, note)
