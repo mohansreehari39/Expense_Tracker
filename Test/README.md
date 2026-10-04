@@ -15,3 +15,6 @@ test tooling that doesn't belong in production source lives here:
   UI without manually clicking through create/add-expense flows. See
   [`Implementation/Windows/README.md`](../Implementation/Windows/README.md)
   for usage.
+- [`Sync/corner-cases.md`](Sync/corner-cases.md) — every known corner case
+  for record sync (phones, server, phone-to-phone), with what happens, what
+  should happen, open decisions, and how each will be tested.
