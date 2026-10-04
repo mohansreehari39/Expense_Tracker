@@ -45,6 +45,28 @@ class LocalRepository(context: Context) {
         db.profileDao().upsert(ProfileEntity(deviceId = deviceId, name = name, age = age, gender = gender, phone = phone, email = email))
     }
 
+    /**
+     * Me → Edit profile. Keeps the deviceId (via [saveProfile]), so this is
+     * still the same person everywhere. A changed name is also applied to
+     * "me" in households/activities that exist only on this phone; linked
+     * ones are left alone, since the next pull would restore the server's
+     * name anyway (the server has no member rename yet). New phone/email
+     * are used the next time this device joins a household.
+     */
+    suspend fun updateProfile(name: String, age: Int?, gender: String?, phone: String?, email: String?) {
+        saveProfile(name, age, gender, phone, email)
+        for (household in unlinkedHouseholds()) {
+            db.memberDao().getMe(household.id)?.let { me ->
+                if (me.displayName != name) db.memberDao().upsert(me.copy(displayName = name))
+            }
+        }
+        for (activity in unlinkedActivities()) {
+            db.participantDao().getMe(activity.id)?.let { me ->
+                if (me.displayName != name) db.participantDao().upsert(me.copy(displayName = name))
+            }
+        }
+    }
+
     // -- Paired servers ---------------------------------------------------
 
     fun observePairedServers(): Flow<List<PairedServerEntity>> = db.pairedServerDao().observeAll()

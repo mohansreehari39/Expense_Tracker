@@ -98,6 +98,10 @@ private val LightColors = lightColorScheme(
     surfaceContainerHighest = Color(0xFFEFF3F1),
     outline = Color(0xFFC9D2CE),
     outlineVariant = Color(0xFFE1E7E4),
+    // Snackbars and other "inverse" surfaces: dark green-grey, not Material's default lavender.
+    inverseSurface = Color(0xFF18211E),
+    inverseOnSurface = Color(0xFFE4EBE8),
+    inversePrimary = Color(0xFF57C9A6),
     error = Color(0xFFC2412D),
 )
 
@@ -123,6 +127,9 @@ private val DarkColors = darkColorScheme(
     surfaceContainerHighest = Color(0xFF222B28),
     outline = Color(0xFF3A4541),
     outlineVariant = Color(0xFF26302C),
+    inverseSurface = Color(0xFFE4EBE8),
+    inverseOnSurface = Color(0xFF18211E),
+    inversePrimary = Color(0xFF13795F),
     error = Color(0xFFEF7A64),
 )
 

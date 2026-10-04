@@ -1,13 +1,17 @@
 package et.android.kharcha.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -20,116 +24,129 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import et.android.kharcha.data.local.ProfileEntity
+import et.android.kharcha.ui.theme.kharcha
 
 private val GENDER_OPTIONS = listOf("Male", "Female", "Other", "Prefer not to say")
+
+/** The profile fields as typed — shared by signup and Me → Edit profile. */
+data class ProfileDraft(
+    val name: String = "",
+    val age: String = "",
+    val gender: String? = null,
+    val phone: String = "",
+    val email: String = "",
+) {
+    /**
+     * Every field is required. Phone and email matter most: they're what
+     * re-identifies this person if the app is reinstalled and rejoins a
+     * household (see et.core.domain.AddMember on the server), so history
+     * isn't split across two profiles.
+     */
+    val isValid: Boolean
+        get() = name.isNotBlank() &&
+            (age.toIntOrNull() ?: 0) > 0 &&
+            gender != null &&
+            phone.isNotBlank() &&
+            email.trim().let { it.isNotBlank() && it.contains("@") }
+
+    companion object {
+        fun from(profile: ProfileEntity) = ProfileDraft(
+            name = profile.name,
+            age = profile.age?.toString().orEmpty(),
+            gender = profile.gender,
+            phone = profile.phone.orEmpty(),
+            email = profile.email.orEmpty(),
+        )
+    }
+}
+
+/** Name, age, gender, phone and email fields, used by both signup and editing. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ProfileForm(draft: ProfileDraft, onChange: (ProfileDraft) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedTextField(
+            value = draft.name,
+            onValueChange = { onChange(draft.copy(name = it)) },
+            label = { Text("Your name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = draft.age,
+            onValueChange = { onChange(draft.copy(age = it.filter(Char::isDigit))) },
+            label = { Text("Age") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Gender", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GENDER_OPTIONS.forEach { option ->
+                FilterChip(
+                    selected = draft.gender == option,
+                    onClick = { onChange(draft.copy(gender = if (draft.gender == option) null else option)) },
+                    label = { Text(option) },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = draft.phone,
+            onValueChange = { onChange(draft.copy(phone = it)) },
+            label = { Text("Phone number") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = draft.email,
+            onValueChange = { onChange(draft.copy(email = it)) },
+            label = { Text("Email") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "All fields are required. Phone and email let a reinstalled app recognize you as the same person when you rejoin a household, so your history isn't split across two profiles.",
+            style = MaterialTheme.typography.bodySmall,
+            color = kharcha.muted,
+        )
+    }
+}
 
 /**
  * Shown once, before anything else — there's no login, so this profile is
  * this device's permanent identity everywhere it's used (see
  * [et.android.kharcha.data.LocalRepository.ensureMyMembership]). Not tied
- * to any server; the app is fully usable offline from here — connecting
- * to a Windows instance is a separate, optional step from the home screen.
+ * to any server; the app is fully usable offline from here. It can be
+ * changed later from Me → Edit profile.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SignupScreen(onSignedUp: (name: String, age: Int?, gender: String?, phone: String?, email: String?) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var age by remember { mutableStateOf("") }
-    var gender by remember { mutableStateOf<String?>(null) }
-    var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
+    var draft by remember { mutableStateOf(ProfileDraft()) }
 
     Scaffold { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(24.dp),
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Text("Welcome to Kharcha", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "Set up your profile once — it's used everywhere you're a member or participant, on this device only.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                )
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Your name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item {
-                OutlinedTextField(
-                    value = age,
-                    onValueChange = { age = it.filter(Char::isDigit) },
-                    label = { Text("Age") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item {
-                Text("Gender", style = MaterialTheme.typography.labelLarge)
-            }
-            item {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GENDER_OPTIONS.forEach { option ->
-                        FilterChip(selected = gender == option, onClick = { gender = if (gender == option) null else option }, label = { Text(option) })
-                    }
-                }
-            }
-            item {
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { phone = it },
-                    label = { Text("Phone number") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            item {
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                // Phone/email are mandatory because they're what
-                // re-identifies this profile as the same person if the app
-                // is ever reinstalled — see et.core.domain.AddMember on the
-                // Windows side. A bare name match alone isn't reliable
-                // enough to safely merge history across a rejoin. Every
-                // field on this screen is required — there's no later "edit
-                // profile" yet (V2), so an incomplete profile has no way to
-                // be filled in afterward.
-                Text(
-                    "Phone and email are required — they're how a reinstalled app recognizes you as the same person when rejoining a household, instead of splitting your history across two profiles.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            item {
-                val ageValid = (age.toIntOrNull() ?: 0) > 0
-                val phoneValid = phone.trim().isNotBlank()
-                val emailValid = email.trim().let { it.isNotBlank() && it.contains("@") }
-                Button(
-                    enabled = name.isNotBlank() && ageValid && gender != null && phoneValid && emailValid,
-                    onClick = {
-                        onSignedUp(name.trim(), age.toIntOrNull(), gender, phone.trim(), email.trim())
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) { Text("Get Started") }
-            }
+            Text("Welcome to Kharcha", style = MaterialTheme.typography.headlineMedium)
+            Text(
+                "Set up your profile once. It's used in every household and activity you join, and stays on this phone. You can change it later from Me.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = kharcha.muted,
+            )
+            ProfileForm(draft, onChange = { draft = it }, modifier = Modifier.padding(top = 4.dp))
+            Button(
+                enabled = draft.isValid,
+                onClick = { onSignedUp(draft.name.trim(), draft.age.toIntOrNull(), draft.gender, draft.phone.trim(), draft.email.trim()) },
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) { Text("Get started", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)) }
         }
     }
 }
