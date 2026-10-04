@@ -71,6 +71,9 @@ kotlin {
 }
 
 dependencies {
+    implementation("et.core:model")
+    implementation("et.core:domain")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
