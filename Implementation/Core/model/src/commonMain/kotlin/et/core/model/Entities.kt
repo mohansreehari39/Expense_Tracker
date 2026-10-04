@@ -141,6 +141,8 @@ data class TripParticipant(
     val displayName: String,
     val memberId: String? = null,
     val isArchived: Boolean = false,
+    /** The phone that joined as this participant — how a rejoin after a reinstall finds them even under a new name. */
+    val deviceId: String? = null,
 )
 
 data class TripExpense(

@@ -26,6 +26,7 @@ dependencies {
     implementation("et.core:model")
     implementation("et.core:sync")
     implementation("et.core:domain")
+    implementation("et.core:api")
 
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)

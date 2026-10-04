@@ -12,6 +12,8 @@ import et.core.model.HlcClock
 import et.windows.db.PairedDeviceStore
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
+import et.windows.db.Stamper
+import et.windows.db.SyncStore
 import et.windows.db.openDatabase
 import et.windows.server.AppServices
 import et.windows.server.advertiseOnLan
@@ -36,8 +38,11 @@ fun main() {
 
     val deviceId = loadOrCreateDeviceId()
     val operationStore = SqlDelightOperationStore(db)
-    val repository = SqlDelightRepository(db, operationStore, deviceId, HlcClock(deviceId))
-    val services = AppServices(repository, deviceId, PairedDeviceStore(db))
+    // One stamper shared by the repository (this app's own edits) and the
+    // sync store (records pushed by phones), so both are numbered in one sequence.
+    val stamper = Stamper(HlcClock(deviceId), db.schemaQueries.maxServerSeq().executeAsOne().maxSeq ?: 0)
+    val repository = SqlDelightRepository(db, operationStore, deviceId, stamper)
+    val services = AppServices(repository, deviceId, PairedDeviceStore(db), SyncStore(db, stamper))
 
     val server = startServer(services, KharchaConfig.port)
     val lanAdvertisement = advertiseOnLan(KharchaConfig.port)

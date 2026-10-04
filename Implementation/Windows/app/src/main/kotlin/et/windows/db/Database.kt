@@ -32,7 +32,7 @@ fun openDatabase(): WindowsDatabase {
  * columns added since), and [addColumnIfMissing] for a column added to a
  * table that already shipped.
  */
-private fun migrateExistingDatabase(url: String) {
+internal fun migrateExistingDatabase(url: String) {
     DriverManager.getConnection(url).use { connection ->
         connection.createStatement().use { statement ->
             statement.execute(
@@ -141,8 +141,22 @@ private fun migrateExistingDatabase(url: String) {
         addColumnIfMissing(connection, "household", "settlementEnabled", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing(connection, "householdExpense", "subcategoryId", "TEXT")
         addColumnIfMissing(connection, "tripExpense", "subcategoryId", "TEXT")
+        addColumnIfMissing(connection, "tripParticipant", "deviceId", "TEXT")
+        // Record sync (see Schema.sq's "Materialized tables" header). Existing
+        // rows get updatedAt '' (= oldest, so any real edit wins), not deleted,
+        // and serverSeq 0 (still delivered by a first pull from cursor -1).
+        for (table in SYNCED_TABLES) {
+            addColumnIfMissing(connection, table, "updatedAt", "TEXT NOT NULL DEFAULT ''")
+            addColumnIfMissing(connection, table, "isDeleted", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(connection, table, "serverSeq", "INTEGER NOT NULL DEFAULT 0")
+        }
     }
 }
+
+private val SYNCED_TABLES = listOf(
+    "household", "category", "subcategory", "member", "householdDependent", "monthlyBudget",
+    "householdExpense", "householdSettlement", "trip", "tripParticipant", "tripExpense", "settlement",
+)
 
 private fun addColumnIfMissing(connection: Connection, table: String, column: String, columnDdl: String) {
     val hasColumn = connection.createStatement().executeQuery("PRAGMA table_info($table)").use { rs ->

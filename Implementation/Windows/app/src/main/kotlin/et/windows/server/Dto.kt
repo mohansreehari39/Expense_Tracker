@@ -236,7 +236,7 @@ data class TripParticipantDto(val id: String, val displayName: String)
 fun TripParticipant.toDto() = TripParticipantDto(id, displayName)
 
 @Serializable
-data class AddTripParticipantRequest(val displayName: String)
+data class AddTripParticipantRequest(val displayName: String, val deviceId: String? = null)
 
 @Serializable
 data class ExpenseSplitDto(val id: String, val participantId: String, val amount: MoneyDto)

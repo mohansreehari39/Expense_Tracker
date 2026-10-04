@@ -54,3 +54,23 @@ class HlcClock(
         return last
     }
 }
+
+/** The oldest possible stamp; anything real is newer. Used for rows written before stamps existed. */
+val HLC_ZERO = Hlc(0, 0, "")
+
+/**
+ * Sortable text form for storing a stamp in a database column: zero-padded
+ * so plain string order equals [Hlc] order (physical, then counter, then
+ * deviceId). "000001791113101000-000000-phone-a" style.
+ */
+fun Hlc.encode(): String = "${physical.toString().padStart(18, '0')}-${counter.toString().padStart(6, '0')}-$deviceId"
+
+/** Inverse of [encode]; blank or malformed text (e.g. a row from before stamps existed) decodes to [HLC_ZERO]. */
+fun decodeHlc(text: String?): Hlc {
+    if (text.isNullOrBlank()) return HLC_ZERO
+    val parts = text.split('-', limit = 3)
+    if (parts.size != 3) return HLC_ZERO
+    val physical = parts[0].toLongOrNull() ?: return HLC_ZERO
+    val counter = parts[1].toIntOrNull() ?: return HLC_ZERO
+    return Hlc(physical, counter, parts[2])
+}

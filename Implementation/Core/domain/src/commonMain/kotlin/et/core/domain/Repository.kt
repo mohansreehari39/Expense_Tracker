@@ -81,6 +81,8 @@ interface Repository {
     suspend fun tripParticipantById(participantId: String): TripParticipant?
     /** Unlike [tripParticipants], includes archived ones — lets [AddTripParticipant] reuse (un-archive) a participant who left and is rejoining, by name, instead of always minting a fresh id. */
     suspend fun tripParticipantByDisplayName(tripId: String, displayName: String): TripParticipant?
+    /** Includes archived ones, like [tripParticipantByDisplayName]. */
+    suspend fun tripParticipantByDeviceId(tripId: String, deviceId: String): TripParticipant?
     suspend fun saveTripParticipant(participant: TripParticipant)
 
     suspend fun tripExpenses(tripId: String): List<TripExpense>
