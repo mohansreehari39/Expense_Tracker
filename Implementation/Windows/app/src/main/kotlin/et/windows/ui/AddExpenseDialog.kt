@@ -30,6 +30,8 @@ import et.windows.server.RecordExpenseRequest
 import et.windows.server.SplitModeDto
 import et.windows.server.SubcategoryDto
 import et.core.model.Money
+import et.core.domain.SplitDefaults
+import et.core.domain.SplitDraft
 
 /**
  * Also used to edit an existing expense, when [expenseToEdit] is
@@ -52,7 +54,7 @@ fun AddExpenseDialog(
     onSubmit: (RecordExpenseRequest) -> Unit,
 ) {
     var amountText by remember {
-        mutableStateOf(expenseToEdit?.let { (it.amount.minorUnits / 100.0).toString() } ?: "")
+        mutableStateOf(expenseToEdit?.let { Money.toPlainString(it.amount.minorUnits) } ?: "")
     }
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
@@ -68,15 +70,18 @@ fun AddExpenseDialog(
         dependents.map { SplitCandidate(it.id, "${it.name} (${it.category.lowercase()})") }
     val contributionCandidates = members.map { SplitCandidate(it.id, it.displayName) }
 
-    var beneficiaryAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
-    var contributionAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    // null = still the default, which keeps following the current people and amount.
+    // Editing an expense re-opens its saved split instead.
+    var beneficiaryDraft by remember { mutableStateOf<SplitDraft?>(expenseToEdit?.beneficiaries?.takeIf { it.isNotEmpty() }?.associate { (it.memberId ?: it.dependentId!!) to it.amount.minorUnits }?.let { saved -> SplitDraft.fromSaved(saved, beneficiaryCandidates.map { it.id }) }) }
+    var contributionDraft by remember { mutableStateOf<SplitDraft?>(expenseToEdit?.contributions?.takeIf { it.isNotEmpty() }?.associate { it.memberId to it.amount.minorUnits }?.let { saved -> SplitDraft.fromSaved(saved, contributionCandidates.map { it.id }) }) }
     var showBeneficiaryEditor by remember { mutableStateOf(false) }
     var showContributionEditor by remember { mutableStateOf(false) }
 
-    val effectiveBeneficiaries = beneficiaryAmounts
-        ?: equalSplitMinorUnits(amountMinorUnits ?: 0L, members.map { it.id })
-    val effectiveContributions = contributionAmounts
-        ?: (payerFallback?.let { mapOf(it to (amountMinorUnits ?: 0L)) } ?: emptyMap())
+    val beneficiarySplit = beneficiaryDraft ?: SplitDefaults.beneficiaries(members.map { it.id })
+    val contributionSplit = contributionDraft ?: SplitDefaults.contributions(payerFallback)
+    val effectiveBeneficiaries = beneficiarySplit.resolve(amountMinorUnits ?: 0L)
+    val effectiveContributions = contributionSplit.resolve(amountMinorUnits ?: 0L)
+    val splitsValid = amountMinorUnits != null && beneficiarySplit.isValid(amountMinorUnits) && contributionSplit.isValid(amountMinorUnits)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -149,10 +154,10 @@ fun AddExpenseDialog(
         },
         confirmButton = {
             Button(
-                enabled = canSubmit,
+                enabled = canSubmit && splitsValid,
                 onClick = {
                     val contributions = effectiveContributions
-                    val paidBy = contributions.maxByOrNull { it.value }?.key ?: payerFallback!!
+                    val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
                     onSubmit(
                         RecordExpenseRequest(
                             categoryId = selectedCategoryId!!,
@@ -178,9 +183,9 @@ fun AddExpenseDialog(
             candidates = beneficiaryCandidates,
             totalAmountMinorUnits = amountMinorUnits ?: 0L,
             currency = currency,
-            initialAmounts = effectiveBeneficiaries,
+            initialDraft = beneficiarySplit,
             onDismiss = { showBeneficiaryEditor = false },
-            onSave = { beneficiaryAmounts = it; showBeneficiaryEditor = false },
+            onSave = { beneficiaryDraft = it; showBeneficiaryEditor = false },
         )
     }
     if (showContributionEditor) {
@@ -189,9 +194,9 @@ fun AddExpenseDialog(
             candidates = contributionCandidates,
             totalAmountMinorUnits = amountMinorUnits ?: 0L,
             currency = currency,
-            initialAmounts = effectiveContributions,
+            initialDraft = contributionSplit,
             onDismiss = { showContributionEditor = false },
-            onSave = { contributionAmounts = it; showContributionEditor = false },
+            onSave = { contributionDraft = it; showContributionEditor = false },
         )
     }
 }

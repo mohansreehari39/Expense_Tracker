@@ -35,43 +35,33 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.parseAmountMinorUnits
+import et.core.domain.SplitDefaults
+import et.core.domain.SplitDraft
+import et.core.model.Money
 
 /** One person a split can be entered against — a member/dependent/participant id + display name. */
 data class SplitCandidate(val id: String, val displayName: String)
 
 private enum class SplitUnit { AMOUNT, PERCENTAGE }
 
-/** A short, human label for a resolved split — used on the collapsed summary row that opens [SplitEditorDialog]. */
-fun summarizeSplit(amounts: Map<String, Long>, candidates: List<SplitCandidate>, totalMinorUnits: Long): String {
-    if (amounts.isEmpty()) return "Not set"
-    if (amounts.size == 1) {
-        val (id, amount) = amounts.entries.first()
-        val name = candidates.find { it.id == id }?.displayName ?: "?"
-        return if (amount == totalMinorUnits) "100% $name" else "$name only"
-    }
-    val values = amounts.values
-    val isEqual = values.maxOrNull()?.let { max -> values.minOrNull()?.let { min -> max - min <= 1 } } ?: true
-    return if (isEqual) "Split equally among ${amounts.size}" else "Custom split among ${amounts.size}"
-}
+/** Collapsed-row label for a split — Core's [SplitDefaults.summarize], with names from [candidates]. */
+fun summarizeSplit(amounts: Map<String, Long>, candidates: List<SplitCandidate>, totalMinorUnits: Long): String =
+    SplitDefaults.summarize(amounts, { id -> candidates.find { it.id == id }?.displayName ?: "?" }, totalMinorUnits)
 
-private fun formatAmount(minorUnits: Long) = (minorUnits / 100.0).let { if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString() }
 private fun formatPercent(minorUnits: Long, totalMinorUnits: Long): String {
     if (totalMinorUnits <= 0) return "0"
     val percent = minorUnits * 100.0 / totalMinorUnits
-    return if (percent == percent.toLong().toDouble()) percent.toLong().toString() else "%.1f".format(percent)
+    return if (percent == percent.toLong().toDouble()) percent.toLong().toString() else "%.2f".format(percent)
 }
 
 /**
- * A dedicated sub-window for editing "who it's for" / "who chipped in" —
- * opened from a summary row on the add-expense form, not shown inline
- * (see README's V1 "Expense beneficiaries"/"Expense contributors"
- * entries). Opens pre-filled with [initialAmounts] (the default split —
- * equal-across-members for beneficiaries, 100%-on-payer for
- * contributions), already showing concrete amounts, not an empty form.
- * A single Amount/Percentage toggle controls the unit of every editable
- * field; percentages are always resolved to concrete minor-units
- * (rounded) before [onSave] is called — this app has no server-side
- * validation step, so that resolution happens right here.
+ * A dedicated sub-window for editing "who it's for" / "who chipped in",
+ * opened from a summary row on the add-expense form. All split behavior
+ * is Core's [SplitDraft], shared by both apps: ticking or unticking
+ * someone re-spreads the "auto" shares; an amount the user types stays as
+ * typed and only the rest is re-spread (clearing a field puts that person
+ * back on auto); percentages always resolve to exact minor units, so the
+ * total always adds up. The DB never stores a percentage.
  */
 @Composable
 fun SplitEditorDialog(
@@ -79,67 +69,69 @@ fun SplitEditorDialog(
     candidates: List<SplitCandidate>,
     totalAmountMinorUnits: Long,
     currency: String,
-    initialAmounts: Map<String, Long>,
+    initialDraft: SplitDraft,
     onDismiss: () -> Unit,
-    onSave: (Map<String, Long>) -> Unit,
+    onSave: (SplitDraft) -> Unit,
 ) {
+    val selectable = candidates
+    val order = selectable.map { it.id }
     var unit by remember { mutableStateOf(SplitUnit.AMOUNT) }
-    var selectedIds by remember { mutableStateOf(initialAmounts.keys) }
-    var amounts by remember { mutableStateOf(initialAmounts) }
-    var text by remember { mutableStateOf(initialAmounts.mapValues { (_, v) -> formatAmount(v) }) }
+    var draft by remember { mutableStateOf(initialDraft) }
+    // Raw text of the fields being typed in; every other field shows its live resolved value.
+    var typed by remember { mutableStateOf(emptyMap<String, String>()) }
+    val amounts = draft.resolve(totalAmountMinorUnits)
+    val sum = amounts.values.sum()
+    val isValid = draft.isValid(totalAmountMinorUnits)
 
-    fun switchUnit(newUnit: SplitUnit) {
-        text = selectedIds.associateWith { id ->
-            when (newUnit) {
-                SplitUnit.AMOUNT -> formatAmount(amounts[id] ?: 0L)
-                SplitUnit.PERCENTAGE -> formatPercent(amounts[id] ?: 0L, totalAmountMinorUnits)
-            }
-        }
-        unit = newUnit
+    fun shown(id: String): String = when (unit) {
+        SplitUnit.AMOUNT -> Money.toPlainString(amounts[id] ?: 0L)
+        SplitUnit.PERCENTAGE -> formatPercent(amounts[id] ?: 0L, totalAmountMinorUnits)
     }
 
     fun onValueChange(id: String, newText: String) {
-        text = text + (id to newText)
-        val parsed = newText.toDoubleOrNull() ?: 0.0
-        val minorUnits = when (unit) {
-            SplitUnit.AMOUNT -> parseAmountMinorUnits(newText) ?: 0L
-            SplitUnit.PERCENTAGE -> (totalAmountMinorUnits * parsed / 100.0).toLong()
+        typed = typed + (id to newText)
+        draft = when {
+            newText.isBlank() -> draft.unlock(id)
+            unit == SplitUnit.AMOUNT -> draft.lockAmount(id, parseAmountMinorUnits(newText) ?: 0L)
+            else -> draft.lockPercent(id, newText.toDoubleOrNull() ?: 0.0)
         }
-        amounts = amounts + (id to minorUnits)
     }
-
-    val sum = selectedIds.sumOf { amounts[it] ?: 0L }
-    val isValid = selectedIds.isNotEmpty() && sum == totalAmountMinorUnits
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
-                SplitUnitToggle(isPercentage = unit == SplitUnit.PERCENTAGE, onToggle = { switchUnit(if (it) SplitUnit.PERCENTAGE else SplitUnit.AMOUNT) })
+                SplitUnitToggle(
+                    isPercentage = unit == SplitUnit.PERCENTAGE,
+                    onToggle = {
+                        unit = if (it) SplitUnit.PERCENTAGE else SplitUnit.AMOUNT
+                        typed = emptyMap()
+                    },
+                )
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    candidates.forEach { candidate ->
+                    selectable.forEach { candidate ->
+                        val isSelected = candidate.id in draft.selected
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Checkbox(
-                                checked = selectedIds.contains(candidate.id),
-                                onCheckedChange = { checked ->
-                                    selectedIds = if (checked) selectedIds + candidate.id else selectedIds - candidate.id
-                                    if (checked && amounts[candidate.id] == null) {
-                                        amounts = amounts + (candidate.id to 0L)
-                                        text = text + (candidate.id to "0")
-                                    }
+                                checked = isSelected,
+                                onCheckedChange = {
+                                    draft = draft.toggle(candidate.id, order)
+                                    typed = typed - candidate.id
                                 },
                             )
                             Text(candidate.displayName, modifier = Modifier.width(120.dp))
-                            if (selectedIds.contains(candidate.id)) {
+                            if (isSelected) {
+                                val symbol = if (unit == SplitUnit.AMOUNT) "₹" else "%"
                                 OutlinedTextField(
-                                    value = text[candidate.id] ?: "",
+                                    value = typed[candidate.id] ?: shown(candidate.id),
                                     onValueChange = { onValueChange(candidate.id, it) },
-                                    label = { Text(if (unit == SplitUnit.AMOUNT) "₹" else "%") },
-                                    modifier = Modifier.width(100.dp),
+                                    label = { Text(if (draft.isLocked(candidate.id)) symbol else "$symbol auto") },
+                                    placeholder = { Text(shown(candidate.id)) },
+                                    modifier = Modifier.width(110.dp),
                                     singleLine = true,
                                 )
                             }
@@ -147,7 +139,7 @@ fun SplitEditorDialog(
                     }
                 }
                 Text(
-                    if (isValid) "Total: ₹${formatAmount(sum)}" else "Total: ₹${formatAmount(sum)} of ₹${formatAmount(totalAmountMinorUnits)}",
+                    if (isValid) "Total: ₹${Money.toPlainString(sum)}" else "Total: ₹${Money.toPlainString(sum)} of ₹${Money.toPlainString(totalAmountMinorUnits)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isValid) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 8.dp),
@@ -155,7 +147,7 @@ fun SplitEditorDialog(
             }
         },
         confirmButton = {
-            Button(enabled = isValid, onClick = { onSave(selectedIds.associateWith { amounts[it] ?: 0L }) }) { Text("Save") }
+            Button(enabled = isValid, onClick = { onSave(draft) }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

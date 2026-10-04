@@ -341,6 +341,15 @@ into a dated sub-list below once actually shipped.
       with the full amount owed; any amount above zero and up to what's
       owed is allowed (Core `SettlementAmount`), and the remainder stays
       owing. The server rejects zero/negative settlements.
+- [x] **#16 — splits didn't recalculate when people were added/removed.**
+      Both apps' split editors now run on Core's `SplitDraft`: ticking or
+      unticking someone re-spreads the shares; amounts the user typed stay
+      as typed and only the rest is re-spread (clearing a field puts that
+      person back on auto); changing the expense amount re-spreads too;
+      percentages always add up exactly (33.33% x 3 no longer leaves the
+      total a paisa short). Editing an expense re-opens its saved split
+      instead of the default. Default splits, payer derivation and the
+      summary text also moved into Core (`SplitDefaults`).
 
 **Planned for V1.5, not yet shipped:**
 - [ ] Edit profile on Android (name/age/gender/phone/email) — signup is

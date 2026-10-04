@@ -23,8 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import et.android.kharcha.data.local.ActivityExpenseEntity
 import et.android.kharcha.data.local.ParticipantEntity
-import et.android.kharcha.data.equalSplitMinorUnits
 import et.android.kharcha.data.parseAmountMinorUnits
+import et.core.domain.SplitDefaults
+import et.core.domain.SplitDraft
+import et.core.model.Money
 
 /**
  * No separate "Paid by" chooser — [defaultParticipantId] (whoever's using
@@ -39,6 +41,9 @@ fun AddTripExpenseDialog(
     currency: String,
     defaultParticipantId: String?,
     expenseToEdit: ActivityExpenseEntity? = null,
+    /** When editing: the expense's saved splits (id → minor units), loaded by the caller. */
+    savedBeneficiaries: Map<String, Long>? = null,
+    savedContributions: Map<String, Long>? = null,
     onDismiss: () -> Unit,
     onSubmit: (
         amountMinorUnits: Long,
@@ -49,7 +54,7 @@ fun AddTripExpenseDialog(
         contributions: List<Pair<String, Long>>,
     ) -> Unit,
 ) {
-    var amountText by remember { mutableStateOf(expenseToEdit?.let { (it.amountMinorUnits / 100.0).toString() } ?: "") }
+    var amountText by remember { mutableStateOf(expenseToEdit?.let { Money.toPlainString(it.amountMinorUnits) } ?: "") }
     var note by remember { mutableStateOf(expenseToEdit?.note ?: "") }
     var occurredAt by remember { mutableStateOf(expenseToEdit?.occurredAt ?: System.currentTimeMillis()) }
     val payerFallback = expenseToEdit?.paidByParticipantId ?: defaultParticipantId ?: participants.firstOrNull()?.id
@@ -58,15 +63,18 @@ fun AddTripExpenseDialog(
 
     val candidates = participants.map { SplitCandidate(it.id, it.displayName) }
 
-    var beneficiaryAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
-    var contributionAmounts by remember { mutableStateOf<Map<String, Long>?>(null) }
+    // null = still the default, which keeps following the current people and amount.
+    // Editing an expense re-opens its saved split instead.
+    var beneficiaryDraft by remember(savedBeneficiaries) { mutableStateOf<SplitDraft?>(savedBeneficiaries?.let { saved -> SplitDraft.fromSaved(saved, candidates.map { it.id }) }) }
+    var contributionDraft by remember(savedContributions) { mutableStateOf<SplitDraft?>(savedContributions?.let { saved -> SplitDraft.fromSaved(saved, candidates.map { it.id }) }) }
     var showBeneficiaryEditor by remember { mutableStateOf(false) }
     var showContributionEditor by remember { mutableStateOf(false) }
 
-    val effectiveBeneficiaries = beneficiaryAmounts
-        ?: equalSplitMinorUnits(amountMinorUnits ?: 0L, participants.map { it.id })
-    val effectiveContributions = contributionAmounts
-        ?: (payerFallback?.let { mapOf(it to (amountMinorUnits ?: 0L)) } ?: emptyMap())
+    val beneficiarySplit = beneficiaryDraft ?: SplitDefaults.beneficiaries(participants.map { it.id })
+    val contributionSplit = contributionDraft ?: SplitDefaults.contributions(payerFallback)
+    val effectiveBeneficiaries = beneficiarySplit.resolve(amountMinorUnits ?: 0L)
+    val effectiveContributions = contributionSplit.resolve(amountMinorUnits ?: 0L)
+    val splitsValid = amountMinorUnits != null && beneficiarySplit.isValid(amountMinorUnits) && contributionSplit.isValid(amountMinorUnits)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -104,10 +112,10 @@ fun AddTripExpenseDialog(
         },
         confirmButton = {
             Button(
-                enabled = canSubmit,
+                enabled = canSubmit && splitsValid,
                 onClick = {
                     val contributions = effectiveContributions
-                    val paidBy = contributions.maxByOrNull { it.value }?.key ?: payerFallback!!
+                    val paidBy = SplitDefaults.payerOf(contributions, payerFallback)!!
                     onSubmit(amountMinorUnits!!, paidBy, occurredAt, note, effectiveBeneficiaries.toList(), contributions.toList())
                 },
             ) { Text("Save") }
@@ -121,9 +129,9 @@ fun AddTripExpenseDialog(
             candidates = candidates,
             totalAmountMinorUnits = amountMinorUnits ?: 0L,
             currency = currency,
-            initialAmounts = effectiveBeneficiaries,
+            initialDraft = beneficiarySplit,
             onDismiss = { showBeneficiaryEditor = false },
-            onSave = { beneficiaryAmounts = it; showBeneficiaryEditor = false },
+            onSave = { beneficiaryDraft = it; showBeneficiaryEditor = false },
         )
     }
     if (showContributionEditor) {
@@ -132,9 +140,9 @@ fun AddTripExpenseDialog(
             candidates = candidates,
             totalAmountMinorUnits = amountMinorUnits ?: 0L,
             currency = currency,
-            initialAmounts = effectiveContributions,
+            initialDraft = contributionSplit,
             onDismiss = { showContributionEditor = false },
-            onSave = { contributionAmounts = it; showContributionEditor = false },
+            onSave = { contributionDraft = it; showContributionEditor = false },
         )
     }
 }
