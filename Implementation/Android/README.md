@@ -60,7 +60,7 @@ sync (via a paired server) is implemented.
   either locally, and the two QR actions above.
 - **Landing/Summary screen** (`SummaryScreen.kt`): nothing is selected by
   default, so this shows each household's *monthly* budget (computed
-  on-device via `BudgetMath.kt`, no server needed) plus a rollup of what
+  on-device with Core's budget logic, no server needed) plus a rollup of what
   you're owed / you owe across activities.
 - **Household screen** (`HouseholdScreen.kt`): two budget bars — this
   month, and the current week with prev/next arrows to browse other weeks
@@ -84,12 +84,13 @@ track `pendingSync`/`pendingDelete` for offline edits awaiting push.
 `data/LocalRepository.kt` is the single facade the UI talks to — it is the
 only source of truth the UI reads/writes; `SyncEngine` never bypasses it.
 
-`data/BudgetMath.kt` is a local Kotlin port of Core's weekly/monthly budget
-evaluation (calendar-day weeks: 1-7, 8-14, 15-21, 22-28, then a short final
-week; proportional week allocation; OK/NEARING/OVER thresholds) — kept in
-sync with `Implementation/Core/domain/.../WeeklyBudget.kt`/`EvaluateBudget.kt`
-by hand, since this app can't depend on the Core KMP modules (see "Why
-standalone" below) and must compute budgets with zero network dependency.
+Budget evaluation (calendar-day weeks: 1-7, 8-14, 15-21, 22-28, then a
+short final week; proportional week allocation with rollover; OK/NEARING/
+OVER thresholds) and equal splits come straight from Core's
+`WeeklyBudget`/`evaluateBudget`/`SplitCalculator` — the same code the
+Windows server runs, executed on-device so budgets need no network.
+`data/CoreBridge.kt` holds the few adapters between Room's plain-`Long`/
+`java.time` shapes and Core's `Money`/`kotlinx-datetime` types.
 
 ## Sync semantics ("server wins, local queues pushes")
 
@@ -118,17 +119,18 @@ so it was rebuilt: Room became the primary data store, the Windows REST API
 became sync transport only, and pairing/joining became two separate,
 explicit, optional actions instead of a mandatory first step.
 
-## Why standalone (not shared Core modules)
+## Shared Core modules
 
-`Implementation/Core/{model,domain,sync}` are Kotlin Multiplatform modules
-with a `jvm()` target, consumed by Windows directly. Making this Android
-app consume them the same way would need each Core module to also declare
-an `androidTarget()` — real Android Gradle Plugin integration this project
-had never exercised before. Given that risk, this app instead talks to the
-Windows app's existing REST API (`Implementation/Windows/.../server/
-Routes.kt`) purely as sync transport, with its own matching set of DTOs
-(`data/Dto.kt`, kept in sync with `Implementation/Windows/.../server/Dto.kt`
-by hand, not shared) and its own local port of the budget math (`BudgetMath.kt`).
+`settings.gradle.kts` includes `Implementation/Core` as a composite build,
+exactly like the Windows app, and the app depends on `et.core:model` and
+`et.core:domain`. Core only declares a `jvm()` target; Android consumes
+that JVM variant directly, so no `androidTarget()` or Android Gradle
+Plugin setup is needed inside Core. Computation logic belongs in Core, not
+here — never re-implement budget/split/balance math on Android.
+
+Still hand-copied for now: the REST DTOs (`data/Dto.kt`, mirrored from
+`Implementation/Windows/.../server/Dto.kt`) and the local balance folds in
+`LocalRepository` — both are being moved into Core next.
 
 ## Why the QR isn't the real pairing handshake yet
 

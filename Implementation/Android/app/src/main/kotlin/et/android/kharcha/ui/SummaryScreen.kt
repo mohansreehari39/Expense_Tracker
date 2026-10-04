@@ -22,13 +22,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import et.android.kharcha.data.BudgetEvaluation
-import et.android.kharcha.data.BudgetMath
 import et.android.kharcha.data.LocalRepository
 import et.android.kharcha.data.local.ActivityEntity
 import et.android.kharcha.data.local.HouseholdEntity
 import et.android.kharcha.ui.theme.Rose
 import et.android.kharcha.ui.theme.Teal
+import et.core.domain.BudgetEvaluation
+import et.core.domain.evaluateBudget
+import et.core.model.Money
 import java.time.LocalDate
 
 /**
@@ -65,7 +66,7 @@ fun SummaryScreen(
                         date.monthValue == today.monthValue && date.year == today.year
                     }
                     .sumOf { it.amountMinorUnits }
-                BudgetMath.evaluateBudget(budget, spent, household.currency)
+                evaluateBudget(Money(budget, household.currency), Money(spent, household.currency))
             }
             household.id to evaluation
         }

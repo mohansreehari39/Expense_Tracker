@@ -40,14 +40,6 @@ data class SplitCandidate(val id: String, val displayName: String)
 
 private enum class SplitUnit { AMOUNT, PERCENTAGE }
 
-/** Equal-split remainder-to-first rule — mirrors Core's `SplitCalculator.splitEqually`. */
-fun equalSplitMinorUnits(totalMinorUnits: Long, ids: List<String>): Map<String, Long> {
-    if (ids.isEmpty()) return emptyMap()
-    val base = totalMinorUnits / ids.size
-    val remainder = totalMinorUnits - base * ids.size
-    return ids.mapIndexed { index, id -> id to (base + if (index == 0) remainder else 0) }.toMap()
-}
-
 /** A short, human label for a resolved split — used on the collapsed summary row that opens [SplitEditorDialog]. */
 fun summarizeSplit(amounts: Map<String, Long>, candidates: List<SplitCandidate>, totalMinorUnits: Long): String {
     if (amounts.isEmpty()) return "Not set"
