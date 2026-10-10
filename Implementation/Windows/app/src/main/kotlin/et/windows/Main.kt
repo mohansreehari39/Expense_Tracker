@@ -9,6 +9,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import et.core.model.HlcClock
+import et.windows.db.DatabaseIdentity
 import et.windows.db.PairedDeviceStore
 import et.windows.db.SqlDelightOperationStore
 import et.windows.db.SqlDelightRepository
@@ -40,9 +41,12 @@ fun main() {
     val operationStore = SqlDelightOperationStore(db)
     // One stamper shared by the repository (this app's own edits) and the
     // sync store (records pushed by phones), so both are numbered in one sequence.
-    val stamper = Stamper(HlcClock(deviceId), db.schemaQueries.maxServerSeq().executeAsOne().maxSeq ?: 0)
+    val maxSeq = db.schemaQueries.maxServerSeq().executeAsOne().maxSeq ?: 0
+    // Changes when the database is restored from a backup, so phones re-send what it's missing (S20).
+    val identity = DatabaseIdentity.load(File(KharchaConfig.dataDir(), "database-id.txt"), maxSeq)
+    val stamper = Stamper(HlcClock(deviceId), maxSeq, identity::recordSeq)
     val repository = SqlDelightRepository(db, operationStore, deviceId, stamper)
-    val services = AppServices(repository, deviceId, PairedDeviceStore(db), SyncStore(db, stamper))
+    val services = AppServices(repository, deviceId, PairedDeviceStore(db), SyncStore(db, stamper, deviceId, { identity.dbId }))
 
     val server = startServer(services, KharchaConfig.port)
     val lanAdvertisement = advertiseOnLan(KharchaConfig.port)

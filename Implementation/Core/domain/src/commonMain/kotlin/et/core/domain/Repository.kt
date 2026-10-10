@@ -96,8 +96,14 @@ interface Repository {
     suspend fun settlements(tripId: String): List<Settlement>
     suspend fun saveSettlement(settlement: Settlement)
 
+    /** Undoes a recorded payment (S23) — a tombstone, so every device learns of it. */
+    suspend fun deleteSettlement(settlementId: String)
+
     suspend fun householdSettlements(householdId: String): List<HouseholdSettlement>
     suspend fun saveHouseholdSettlement(settlement: HouseholdSettlement)
+
+    /** Undoes a recorded payment (S23) — a tombstone, so every device learns of it. */
+    suspend fun deleteHouseholdSettlement(settlementId: String)
 
     suspend fun devices(): List<Device>
 }

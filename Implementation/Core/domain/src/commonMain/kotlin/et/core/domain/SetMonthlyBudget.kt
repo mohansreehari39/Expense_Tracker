@@ -2,10 +2,16 @@ package et.core.domain
 
 import et.core.model.Money
 import et.core.model.MonthlyBudget
+import et.core.model.StableIds
 
+/**
+ * Sets one month's budget override. A household has at most one per month:
+ * a new one gets an id derived from the household and month
+ * ([StableIds.monthlyBudget]), so overrides set on two devices before they
+ * sync are the same record and merge (S5).
+ */
 class SetMonthlyBudget(
     private val repository: Repository,
-    private val idGenerator: IdGenerator,
 ) {
     suspend operator fun invoke(
         householdId: String,
@@ -17,7 +23,7 @@ class SetMonthlyBudget(
         require(month in 1..12) { "month must be 1..12, was $month" }
         val existing = repository.monthlyBudget(householdId, year, month)
         val budget = MonthlyBudget(
-            id = existing?.id ?: idGenerator.newId(),
+            id = existing?.id ?: StableIds.monthlyBudget(householdId, year, month),
             householdId = householdId,
             year = year,
             month = month,

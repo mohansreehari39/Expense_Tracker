@@ -38,6 +38,8 @@ data class Member(
     val email: String? = null,
     val phone: String? = null,
     val isArchived: Boolean = false,
+    /** With name, email and phone, identifies the person (see [StableIds.person]). */
+    val age: Int? = null,
 )
 
 data class Category(
@@ -143,6 +145,10 @@ data class TripParticipant(
     val isArchived: Boolean = false,
     /** The phone that joined as this participant — how a rejoin after a reinstall finds them even under a new name. */
     val deviceId: String? = null,
+    /** With name, email and phone, identifies the person (see [StableIds.person]). */
+    val age: Int? = null,
+    val email: String? = null,
+    val phone: String? = null,
 )
 
 data class TripExpense(

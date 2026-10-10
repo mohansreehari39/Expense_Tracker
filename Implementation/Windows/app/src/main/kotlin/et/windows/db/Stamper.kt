@@ -14,7 +14,12 @@ import et.core.model.encode
  * The app is one process with a small household's worth of writes, so a
  * single lock costs nothing noticeable.
  */
-class Stamper(private val clock: HlcClock, initialSeq: Long) {
+class Stamper(
+    private val clock: HlcClock,
+    initialSeq: Long,
+    /** Told every sequence number handed out — [DatabaseIdentity.recordSeq]. */
+    private val onSeq: (Long) -> Unit = {},
+) {
     private val lock = Any()
     private var seq = initialSeq
 
@@ -30,7 +35,7 @@ class Stamper(private val clock: HlcClock, initialSeq: Long) {
             clock.receive(remote)
         }
 
-        fun nextSeq(): Long = ++seq
+        fun nextSeq(): Long = (++seq).also(onSeq)
     }
 
     /** A fresh stamp outside any write — for the (unsent) operation log. */

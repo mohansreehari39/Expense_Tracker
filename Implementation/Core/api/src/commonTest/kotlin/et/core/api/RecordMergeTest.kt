@@ -2,6 +2,7 @@ package et.core.api
 
 import et.core.model.HLC_ZERO
 import et.core.model.Hlc
+import et.core.model.StableIds
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -131,5 +132,19 @@ class RecordMergeTest {
             StableIds.person("t", "Asha", 30, "a@b.c", "9876543210"),
             StableIds.person("t", "Asha", 31, "a@b.c", "9876543210"),
         )
+    }
+
+    @Test
+    fun expenseStampsSeparateAddingFromChangingTheMoney() {
+        val expense = HouseholdExpenseRecord(
+            id = "e", updatedAt = HLC_ZERO, householdId = "h", categoryId = "c", amountMinorUnits = 1_000,
+            currency = "INR", paidByMemberId = "m1", occurredAt = 0, ownerId = "m1",
+        )
+        val added = RecordMerge.edited(null, expense, stamp(1_000))
+        val noted = RecordMerge.edited(added, added.copy(note = "dinner"), stamp(5_000))
+        assertEquals(1_000, ExpenseStamps.addedAt(noted))
+        assertEquals(1_000, ExpenseStamps.moneyChangedAt(noted), "a note isn't money")
+        val corrected = RecordMerge.edited(noted, noted.copy(amountMinorUnits = 800), stamp(9_000))
+        assertEquals(9_000, ExpenseStamps.moneyChangedAt(corrected))
     }
 }

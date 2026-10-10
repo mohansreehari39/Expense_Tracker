@@ -105,6 +105,22 @@ data class HouseholdResponse(
     /** Only populated when [HouseholdDto.settlementEnabled] — equal-split net balance per member, mirroring [TripDetailResponse.balances]. */
     val balances: Map<String, MoneyDto> = emptyMap(),
     val suggestedSettlements: List<SuggestedTransferDto> = emptyList(),
+    /** Payments recorded so far, newest first — listed so one can be undone (S23). */
+    val payments: List<PaymentDto> = emptyList(),
+)
+
+/**
+ * A recorded payment. [possibleDuplicate]: another payment between the same
+ * two people within a day — maybe the same debt settled on two phones (S23).
+ */
+@Serializable
+data class PaymentDto(
+    val id: String,
+    val fromId: String,
+    val toId: String,
+    val amount: MoneyDto,
+    val settledAt: Long,
+    val possibleDuplicate: Boolean = false,
 )
 
 @Serializable
@@ -115,7 +131,7 @@ data class AddSubcategoryRequest(val name: String)
 
 /** [email]/[phone] are only sent when this member IS the joining device's own profile owner — see [et.android.kharcha.data.SyncEngine] on the Android side. Left null when adding another named member (e.g. typed manually in Windows' household settings, or a locally-created household member being pushed up that isn't this device's own profile). */
 @Serializable
-data class AddMemberRequest(val displayName: String, val email: String? = null, val phone: String? = null)
+data class AddMemberRequest(val displayName: String, val email: String? = null, val phone: String? = null, val age: Int? = null)
 
 /** [category] is [DependentCategory]'s name (`"PET"`/`"KID"`/`"PARENT"`). */
 @Serializable
@@ -154,12 +170,15 @@ data class HouseholdExpenseDto(
     val note: String,
     val beneficiaries: List<HouseholdExpenseBeneficiaryDto> = emptyList(),
     val contributions: List<HouseholdExpenseContributionDto> = emptyList(),
+    /** Its money changed after people settled up — why a balance moved (S24). */
+    val changedAfterSettling: Boolean = false,
 )
 
 fun HouseholdExpense.toDto(
     beneficiaries: List<HouseholdExpenseBeneficiaryDto> = emptyList(),
     contributions: List<HouseholdExpenseContributionDto> = emptyList(),
-) = HouseholdExpenseDto(id, categoryId, subcategoryId, amount.toDto(), paidByMemberId, occurredAt, note, beneficiaries, contributions)
+    changedAfterSettling: Boolean = false,
+) = HouseholdExpenseDto(id, categoryId, subcategoryId, amount.toDto(), paidByMemberId, occurredAt, note, beneficiaries, contributions, changedAfterSettling)
 
 @Serializable
 data class WeekEvaluationDto(val weekStart: String, val weekEnd: String, val evaluation: BudgetEvaluationDto)
@@ -236,7 +255,13 @@ data class TripParticipantDto(val id: String, val displayName: String)
 fun TripParticipant.toDto() = TripParticipantDto(id, displayName)
 
 @Serializable
-data class AddTripParticipantRequest(val displayName: String, val deviceId: String? = null)
+data class AddTripParticipantRequest(
+    val displayName: String,
+    val deviceId: String? = null,
+    val age: Int? = null,
+    val email: String? = null,
+    val phone: String? = null,
+)
 
 @Serializable
 data class ExpenseSplitDto(val id: String, val participantId: String, val amount: MoneyDto)
@@ -257,12 +282,15 @@ data class TripExpenseDto(
     val note: String,
     val beneficiaries: List<ExpenseSplitDto> = emptyList(),
     val contributions: List<TripExpenseContributionDto> = emptyList(),
+    /** Its money changed after people settled up — why a balance moved (S24). */
+    val changedAfterSettling: Boolean = false,
 )
 
 fun TripExpense.toDto(
     beneficiaries: List<ExpenseSplitDto> = emptyList(),
     contributions: List<TripExpenseContributionDto> = emptyList(),
-) = TripExpenseDto(id, amount.toDto(), paidByParticipantId, occurredAt, note, beneficiaries, contributions)
+    changedAfterSettling: Boolean = false,
+) = TripExpenseDto(id, amount.toDto(), paidByParticipantId, occurredAt, note, beneficiaries, contributions, changedAfterSettling)
 
 @Serializable
 data class SuggestedTransferDto(val fromParticipantId: String, val toParticipantId: String, val amount: MoneyDto)
@@ -276,6 +304,8 @@ data class TripDetailResponse(
     val expenses: List<TripExpenseDto>,
     val balances: Map<String, MoneyDto>,
     val suggestedSettlements: List<SuggestedTransferDto>,
+    /** Payments recorded so far, newest first — listed so one can be undone (S23). */
+    val payments: List<PaymentDto> = emptyList(),
 )
 
 @Serializable

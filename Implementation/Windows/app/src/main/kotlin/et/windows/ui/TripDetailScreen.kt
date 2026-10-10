@@ -159,9 +159,31 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                                         TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
+                                if (current.expenses.any { it.changedAfterSettling }) {
+                                    Text(
+                                        "Some expenses changed after settling, so these include the corrections.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                }
                             }
                         }
                     }
+
+                    RecordedPayments(
+                        payments = current.payments,
+                        nameOf = { id -> current.participants.find { it.id == id }?.displayName ?: id },
+                        onUndo = { p ->
+                            scope.launch {
+                                try {
+                                    api.undoTripSettlement(tripId, p.id)
+                                } catch (e: Exception) {
+                                    error = e.message ?: e::class.simpleName
+                                }
+                                reload()
+                            }
+                        },
+                    )
 
                     Spacer(Modifier.height(24.dp))
                     Text("Expenses", style = MaterialTheme.typography.titleMedium)
@@ -180,6 +202,7 @@ fun TripDetailScreen(api: ApiClient, tripId: String, refreshSignal: Int) {
                                 if (expense.note.isNotBlank()) {
                                     Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                                if (expense.changedAfterSettling) ChangedAfterSettlingLabel()
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)

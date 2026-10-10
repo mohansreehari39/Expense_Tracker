@@ -150,6 +150,17 @@ internal fun migrateExistingDatabase(url: String) {
             addColumnIfMissing(connection, table, "isDeleted", "INTEGER NOT NULL DEFAULT 0")
             addColumnIfMissing(connection, table, "serverSeq", "INTEGER NOT NULL DEFAULT 0")
         }
+        // Field-level merge, ownership and person identity (Test/Sync/corner-cases.md).
+        connection.createStatement().use {
+            it.execute("CREATE TABLE IF NOT EXISTS recordStamps (id TEXT NOT NULL PRIMARY KEY, fieldStamps TEXT NOT NULL)")
+        }
+        addColumnIfMissing(connection, "member", "age", "INTEGER")
+        addColumnIfMissing(connection, "tripParticipant", "age", "INTEGER")
+        addColumnIfMissing(connection, "tripParticipant", "email", "TEXT")
+        addColumnIfMissing(connection, "tripParticipant", "phone", "TEXT")
+        for (table in listOf("householdExpense", "tripExpense", "householdSettlement", "settlement")) {
+            addColumnIfMissing(connection, table, "ownerId", "TEXT")
+        }
     }
 }
 

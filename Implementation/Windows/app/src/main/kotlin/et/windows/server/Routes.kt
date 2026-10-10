@@ -3,6 +3,7 @@ package et.windows.server
 import et.core.domain.DateRange
 import et.core.domain.DebtSimplification
 import et.core.domain.EffectiveMonthlyBudget
+import et.core.domain.SettlementChecks
 import et.core.domain.SplitMode
 import et.core.domain.TripBalances
 import et.core.domain.WeeklyBudget
@@ -10,6 +11,7 @@ import et.core.domain.evaluateBudget
 import et.core.domain.resolveMonthlyBudget
 import et.core.model.Money
 import et.windows.db.ClientLogStore
+import et.windows.db.SyncRefused
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.header
@@ -30,12 +32,16 @@ import kotlinx.datetime.toLocalDateTime
 import io.ktor.server.response.respondText
 import io.ktor.server.request.receiveText
 import io.ktor.http.ContentType
+import et.core.api.HouseholdExpenseRecord
 import et.core.api.SyncScope
+import et.core.api.TripExpenseRecord
 import et.core.api.SyncJson
 import et.core.api.ScopeKind
 import et.core.api.PushResponse
 import et.core.api.PushRequest
 import et.core.api.PullResponse
+import et.core.api.SyncError
+import et.core.api.SyncProtocol
 
 private val zone = TimeZone.currentSystemDefault()
 private fun LocalDate.startOfDayMillis(): Long = atStartOfDayIn(zone).toEpochMilliseconds()
@@ -109,6 +115,15 @@ private suspend fun weekEvaluationFor(
 }
 
 /** Only computed when [et.core.model.Household.settlementEnabled] — empty otherwise, matching a household that never opted in. */
+private class PaymentRow(val id: String, val fromId: String, val toId: String, val amount: Money, val settledAt: Long)
+
+/** Newest first, each flagged when it may duplicate another (S23). */
+private fun paymentDtos(rows: List<PaymentRow>): List<PaymentDto> {
+    val duplicates = SettlementChecks.possibleDuplicates(rows.map { SettlementChecks.Payment(it.id, it.fromId, it.toId, it.settledAt) })
+    return rows.sortedByDescending { it.settledAt }
+        .map { PaymentDto(it.id, it.fromId, it.toId, it.amount.toDto(), it.settledAt, it.id in duplicates) }
+}
+
 private suspend fun householdBalances(services: AppServices, household: et.core.model.Household): Pair<Map<String, MoneyDto>, List<SuggestedTransferDto>> {
     if (!household.settlementEnabled) return emptyMap<String, MoneyDto>() to emptyList()
     val members = services.repository.members(household.id)
@@ -211,6 +226,8 @@ private fun Route.households(services: AppServices) {
                 val members = services.repository.members(householdId)
                 val dependents = services.repository.householdDependents(householdId)
                 val (balances, suggestions) = householdBalances(services, household)
+                val payments = services.repository.householdSettlements(householdId)
+                    .map { PaymentRow(it.id, it.fromMemberId, it.toMemberId, it.amount, it.settledAt) }
                 call.respond(
                     HouseholdResponse(
                         household.toDto(),
@@ -219,6 +236,7 @@ private fun Route.households(services: AppServices) {
                         dependents.map { it.toDto() },
                         balances,
                         suggestions,
+                        paymentDtos(payments),
                     ),
                 )
             }
@@ -283,7 +301,7 @@ private fun Route.households(services: AppServices) {
                     val request = call.receive<AddMemberRequest>()
                     val deviceId = call.request.header("X-Device-Id")
                     val member = try {
-                        services.addMember(householdId, request.displayName, deviceId, request.email, request.phone)
+                        services.addMember(householdId, request.displayName, deviceId, request.email, request.phone, request.age)
                     } catch (e: IllegalArgumentException) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid member name")))
                     }
@@ -342,6 +360,12 @@ private fun Route.households(services: AppServices) {
                     }
                     val (balances, suggestions) = householdBalances(services, household)
                     call.respond(HttpStatusCode.Created, HouseholdSettlementsResponse(balances, suggestions))
+                }
+
+                // Undo a recorded payment (S23). The Windows app may undo any; phones only their own, through sync.
+                delete("/{settlementId}") {
+                    services.repository.deleteHouseholdSettlement(call.parameters["settlementId"]!!)
+                    call.respond(HttpStatusCode.NoContent)
                 }
             }
 
@@ -414,11 +438,13 @@ private fun Route.households(services: AppServices) {
                         range.start.startOfDayMillis(),
                         range.endInclusive.exclusiveEndMillis(),
                     )
+                    val settledAts = services.repository.householdSettlements(householdId).map { it.settledAt }
                     call.respond(
                         expenses.map { expense ->
                             expense.toDto(
                                 services.repository.householdExpenseBeneficiaries(expense.id).map { it.toDto() },
                                 services.repository.householdExpenseContributions(expense.id).map { it.toDto() },
+                                services.syncStore.changedAfterSettling(HouseholdExpenseRecord::class, expense.id, settledAts),
                             )
                         },
                     )
@@ -566,10 +592,12 @@ private fun Route.trips(services: AppServices) {
                             expense.toDto(
                                 services.repository.expenseSplits(expense.id).map { it.toDto() },
                                 services.repository.tripExpenseContributions(expense.id).map { it.toDto() },
+                                services.syncStore.changedAfterSettling(TripExpenseRecord::class, expense.id, settlements.map { it.settledAt }),
                             )
                         },
                         balances = balances.mapValues { it.value.toDto() },
                         suggestedSettlements = suggestions.map { it.toDto() },
+                        payments = paymentDtos(settlements.map { PaymentRow(it.id, it.fromParticipantId, it.toParticipantId, it.amount, it.settledAt) }),
                     ),
                 )
             }
@@ -591,7 +619,14 @@ private fun Route.trips(services: AppServices) {
                     val tripId = call.parameters["tripId"]!!
                     val request = call.receive<AddTripParticipantRequest>()
                     val participant = try {
-                        services.addTripParticipant(tripId, request.displayName, request.deviceId ?: call.request.header("X-Device-Id"))
+                        services.addTripParticipant(
+                            tripId,
+                            request.displayName,
+                            request.deviceId ?: call.request.header("X-Device-Id"),
+                            request.age,
+                            request.email,
+                            request.phone,
+                        )
                     } catch (e: IllegalArgumentException) {
                         return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "invalid participant name")))
                     }
@@ -699,6 +734,12 @@ private fun Route.trips(services: AppServices) {
                         TripSettlementsResponse(balances.mapValues { it.value.toDto() }, suggestions.map { it.toDto() }),
                     )
                 }
+
+                // Undo a recorded payment (S23). The Windows app may undo any; phones only their own, through sync.
+                delete("/{settlementId}") {
+                    services.repository.deleteSettlement(call.parameters["settlementId"]!!)
+                    call.respond(HttpStatusCode.NoContent)
+                }
             }
         }
     }
@@ -718,8 +759,12 @@ private fun Route.sync(services: AppServices) {
             } catch (e: kotlinx.serialization.SerializationException) {
                 return@post call.respond(HttpStatusCode.BadRequest, mapOf("error" to (e.message ?: "unreadable push")))
             }
-            val results = services.syncStore.push(request.records)
-            call.respondText(SyncJson.encodeToString(PushResponse.serializer(), PushResponse(results)), ContentType.Application.Json)
+            val response = try {
+                services.syncStore.push(request)
+            } catch (e: SyncRefused) {
+                return@post call.respondSyncError(e.error)
+            }
+            call.respondText(SyncJson.encodeToString(PushResponse.serializer(), response), ContentType.Application.Json)
         }
         get("/pull") {
             val kind = call.parameters["kind"]?.let { runCatching { ScopeKind.valueOf(it) }.getOrNull() }
@@ -730,4 +775,13 @@ private fun Route.sync(services: AppServices) {
             call.respondText(SyncJson.encodeToString(PullResponse.serializer(), response), ContentType.Application.Json)
         }
     }
+}
+
+/**
+ * A sync refusal (S11 clock ahead, S30 update required), as JSON the phone
+ * reads ([SyncError]) under a status old apps also treat as a failed sync.
+ */
+suspend fun io.ktor.server.application.ApplicationCall.respondSyncError(error: SyncError) {
+    val status = if (error.code == SyncProtocol.ERROR_UPDATE_REQUIRED) HttpStatusCode.UpgradeRequired else HttpStatusCode.Conflict
+    respondText(SyncJson.encodeToString(SyncError.serializer(), error), ContentType.Application.Json, status)
 }

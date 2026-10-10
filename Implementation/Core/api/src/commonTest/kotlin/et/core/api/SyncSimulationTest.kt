@@ -1,6 +1,7 @@
 package et.core.api
 
 import et.core.model.HLC_ZERO
+import et.core.model.StableIds
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals

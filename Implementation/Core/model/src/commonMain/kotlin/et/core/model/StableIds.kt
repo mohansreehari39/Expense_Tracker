@@ -1,4 +1,4 @@
-package et.core.api
+package et.core.model
 
 /** SHA-256 of [bytes] — platform-provided (JDK MessageDigest on the JVM, which Android also uses). */
 internal expect fun sha256(bytes: ByteArray): ByteArray

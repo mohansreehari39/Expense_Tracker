@@ -2,7 +2,9 @@ package et.windows.db
 
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import et.core.api.HouseholdExpenseRecord
+import et.core.api.MemberRecord
 import et.core.api.PullResponse
+import et.core.api.PushRequest
 import et.core.api.ScopeKind
 import et.core.api.SyncScope
 import et.core.model.HLC_ZERO
@@ -13,6 +15,7 @@ import java.io.File
 import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** A database created by the released app (v0.1.2 schema) upgrades in place, keeping every row. */
@@ -33,7 +36,7 @@ class MigrationTest {
 
         migrateExistingDatabase(url)
         val db = WindowsDatabase(JdbcSqliteDriver(url))
-        val store = SyncStore(db, Stamper(HlcClock("server"), db.schemaQueries.maxServerSeq().executeAsOne().maxSeq ?: 0))
+        val store = SyncStore(db, Stamper(HlcClock("server"), db.schemaQueries.maxServerSeq().executeAsOne().maxSeq ?: 0), "server")
 
         val pulled = store.pull(SyncScope(ScopeKind.HOUSEHOLD, "home"), PullResponse.START)
         assertEquals(setOf("home", "asha", "exp-1"), pulled.records.map { it.id }.toSet())
@@ -41,7 +44,9 @@ class MigrationTest {
         assertEquals(234050, expense.amountMinorUnits)
         assertEquals("veg", expense.note)
         assertEquals(HLC_ZERO, expense.updatedAt) // pre-sync rows count as the oldest version
-        assertTrue(store.apply(expense.copy(updatedAt = Hlc(1, 0, "phone-a"), note = "vegetables")).accepted)
+        assertTrue(store.push(PushRequest(listOf(expense.copy(updatedAt = Hlc(1, 0, "server"), note = "vegetables")))).results.single().accepted)
+        val asha = store.pull(SyncScope(ScopeKind.HOUSEHOLD, "home"), PullResponse.START).records.single { it.id == "asha" } as MemberRecord
+        assertNull(asha.age) // columns added since are empty on old rows
 
         // Running the upgrade again (every launch does) changes nothing.
         migrateExistingDatabase(url)

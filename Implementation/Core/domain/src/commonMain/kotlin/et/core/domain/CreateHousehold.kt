@@ -2,6 +2,7 @@ package et.core.domain
 
 import et.core.model.Category
 import et.core.model.Household
+import et.core.model.StableIds
 
 private val DEFAULT_CATEGORY_NAMES = listOf("Groceries", "Utilities", "Rent", "Eating Out", "Other")
 
@@ -15,7 +16,7 @@ class CreateHousehold(
         repository.saveHousehold(household)
         for (categoryName in DEFAULT_CATEGORY_NAMES) {
             repository.saveCategory(
-                Category(id = idGenerator.newId(), householdId = household.id, name = categoryName, icon = ""),
+                Category(id = StableIds.category(household.id, categoryName), householdId = household.id, name = categoryName, icon = ""),
             )
         }
         return household

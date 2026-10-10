@@ -1,4 +1,4 @@
-package et.core.api
+package et.core.model
 
 import java.security.MessageDigest
 

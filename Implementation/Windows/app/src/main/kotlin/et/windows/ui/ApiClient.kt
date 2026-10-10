@@ -116,6 +116,10 @@ class ApiClient(private val baseUrl: String) {
             setBody(request)
         }.body()
 
+    suspend fun undoHouseholdSettlement(householdId: String, settlementId: String) {
+        client.delete("$baseUrl/api/v1/households/$householdId/settlements/$settlementId")
+    }
+
     suspend fun monthBudget(householdId: String, year: Int, month: Int): MonthBudgetResponse =
         client.get("$baseUrl/api/v1/households/$householdId/budgets/$year/$month").body()
 
@@ -197,6 +201,10 @@ class ApiClient(private val baseUrl: String) {
             contentType(ContentType.Application.Json)
             setBody(request)
         }.body()
+
+    suspend fun undoTripSettlement(tripId: String, settlementId: String) {
+        client.delete("$baseUrl/api/v1/trips/$tripId/settlements/$settlementId")
+    }
 
     suspend fun devices(): List<PairedDeviceDto> = client.get("$baseUrl/api/v1/devices").body()
 

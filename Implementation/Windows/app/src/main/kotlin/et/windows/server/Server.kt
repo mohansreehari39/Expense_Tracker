@@ -1,6 +1,9 @@
 package et.windows.server
 
+import et.core.api.SyncError
+import et.core.api.SyncProtocol
 import et.windows.KharchaConfig
+import et.windows.db.SyncStore
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -32,6 +35,7 @@ private fun Application.expenseTrackerModule(services: AppServices) {
         allowHeader("Content-Type")
         allowHeader("X-Device-Id")
         allowHeader("X-Pairing-Key")
+        allowHeader(SYNC_PROTOCOL_HEADER)
         allowMethod(HttpMethod.Post)
     }
     install(deviceAuthPlugin(services))
@@ -53,8 +57,13 @@ private fun Application.expenseTrackerModule(services: AppServices) {
  * already a trusted local process, not a remote device that could only
  * have gotten in by pairing. Closes the actual gap in v0: every household,
  * expense, etc. route had zero authentication before this — any device
- * that could merely reach the port was fully trusted.
+ * that could merely reach the port was fully trusted. A paired phone must
+ * also speak the current sync protocol ([SYNC_PROTOCOL_HEADER]), or it's
+ * told to update (S30).
  */
+/** Sent by phones on every request: the record-sync protocol they speak ([SyncProtocol.VERSION]). */
+const val SYNC_PROTOCOL_HEADER = "X-Sync-Protocol"
+
 private fun deviceAuthPlugin(services: AppServices) = createApplicationPlugin("DeviceAuth") {
     onCall { call ->
         val request = call.request
@@ -71,6 +80,13 @@ private fun deviceAuthPlugin(services: AppServices) = createApplicationPlugin("D
         val valid = deviceId != null && pairingKey != null && services.pairedDevices.isValid(deviceId, pairingKey)
         if (!valid) {
             call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "missing or invalid device credentials"))
+            return@onCall
+        }
+        // S30: a phone from before record sync would "sync" through the old
+        // routes with the old rules; tell it to update instead.
+        val protocol = request.header(SYNC_PROTOCOL_HEADER)?.toIntOrNull() ?: 1
+        if (protocol < SyncProtocol.VERSION) {
+            call.respondSyncError(SyncError(SyncProtocol.ERROR_UPDATE_REQUIRED, SyncStore.UPDATE_MESSAGE))
         }
     }
 }

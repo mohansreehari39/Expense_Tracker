@@ -180,9 +180,30 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                                         TextButton(onClick = { settleTarget = s }) { Text("Settle") }
                                     }
                                 }
+                                if (expenses.any { it.changedAfterSettling }) {
+                                    Text(
+                                        "Some expenses changed after settling, so these include the corrections.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.tertiary,
+                                    )
+                                }
                             }
                         }
                     }
+                    RecordedPayments(
+                        payments = settlement.payments,
+                        nameOf = { id -> members.find { it.id == id }?.displayName ?: id },
+                        onUndo = { p ->
+                            scope.launch {
+                                try {
+                                    api.undoHouseholdSettlement(householdId, p.id)
+                                } catch (e: Exception) {
+                                    error = e.message ?: e::class.simpleName
+                                }
+                                reload()
+                            }
+                        },
+                    )
                 }
 
                 if (expenses.isNotEmpty()) {
@@ -226,6 +247,7 @@ fun HouseholdDetailScreen(api: ApiClient, householdId: String, refreshSignal: In
                             if (expense.note.isNotBlank()) {
                                 Text(expense.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            if (expense.changedAfterSettling) ChangedAfterSettlingLabel()
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(formatMoney(expense.amount), style = MaterialTheme.typography.titleMedium)

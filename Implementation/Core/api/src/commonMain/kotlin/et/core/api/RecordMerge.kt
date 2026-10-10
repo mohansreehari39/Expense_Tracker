@@ -206,3 +206,20 @@ object Ownership {
         return personOfDevice(authorDeviceId) == owner
     }
 }
+
+/**
+ * When an expense was added and when its money last changed, read from
+ * its field stamps — the inputs to et.core.domain.SettlementChecks'
+ * "changed after settling" label (S24). A record from before field stamps
+ * reports both as its one stamp, so it's never labelled.
+ */
+object ExpenseStamps {
+    private val MONEY_FIELDS = setOf(
+        "amountMinorUnits", "currency", "paidByMemberId", "paidByParticipantId", "beneficiaries", "contributions", "splits",
+    )
+
+    fun addedAt(expense: SyncRecord): Long = RecordMerge.allStamps(expense).values.minOf { it.physical }
+
+    fun moneyChangedAt(expense: SyncRecord): Long =
+        RecordMerge.allStamps(expense).filterKeys { it in MONEY_FIELDS }.values.maxOfOrNull { it.physical } ?: expense.updatedAt.physical
+}

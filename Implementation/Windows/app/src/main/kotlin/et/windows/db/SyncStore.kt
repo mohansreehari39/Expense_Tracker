@@ -1,118 +1,89 @@
 package et.windows.db
 
-import et.core.api.CategoryRecord
-import et.core.api.DependentRecord
-import et.core.api.HouseholdExpenseRecord
-import et.core.api.HouseholdRecord
-import et.core.api.HouseholdSettlementRecord
-import et.core.api.Lww
-import et.core.api.MemberRecord
-import et.core.api.MonthlyBudgetRecord
-import et.core.api.ParticipantRecord
+import et.core.api.ExpenseStamps
+import et.core.api.Ownership
 import et.core.api.PullResponse
+import et.core.api.PushRequest
+import et.core.api.PushResponse
 import et.core.api.PushResult
+import et.core.api.RecordMerge
 import et.core.api.ScopeKind
-import et.core.api.SettlementRecord
-import et.core.api.ShareLine
-import et.core.api.SubcategoryRecord
+import et.core.api.SyncError
+import et.core.api.SyncProtocol
 import et.core.api.SyncRecord
 import et.core.api.SyncScope
-import et.core.api.TripExpenseRecord
-import et.core.api.TripRecord
-import et.core.model.decodeHlc
-import et.core.model.encode
+import et.core.domain.SettlementChecks
+import et.core.model.Hlc
 import et.windows.db.sql.WindowsDatabase
+import kotlin.reflect.KClass
 
 /**
- * The server side of record sync (see et.core.api.SyncRecords): applies
- * records pushed by phones with last-write-wins, and serves "everything
- * that changed since cursor N" pulls. Ids come from whichever device
- * created a record and are the same everywhere, so the same record pushed
- * twice — by the same phone, or by two phones that synced with each other
- * first — is stored once.
+ * The server side of record sync (see et.core.api.SyncRecords): merges
+ * records pushed by phones into the database, and serves "everything that
+ * changed since cursor N" pulls.
+ *
+ * A pushed record is merged field by field with the stored one
+ * ([RecordMerge.merge]) against the base the phone sent — the version this
+ * server last confirmed to it — with this server's own changes winning a
+ * clash. An expense or settlement may only be added or changed by its
+ * owner's phone or on Windows ([Ownership]); other changes to it are
+ * refused field by field and the phone gets the stored version back. Ids
+ * are the same on every device, so the same record pushed twice — by the
+ * same phone, or relayed by another — is stored once.
  *
  * Shares [Stamper] with [SqlDelightRepository], so phone writes and the
  * Windows app's own writes are numbered in one sequence.
  */
-class SyncStore(private val db: WindowsDatabase, private val stamper: Stamper) {
+class SyncStore(
+    private val db: WindowsDatabase,
+    private val stamper: Stamper,
+    /** This server's device id — the stamps of changes made on Windows carry it. */
+    private val serverDeviceId: String,
+    private val databaseId: () -> String = { "" },
+    private val nowMillis: () -> Long = System::currentTimeMillis,
+) {
     private val q get() = db.schemaQueries
+    private val tables = RecordTables(db)
 
-    /** Applies each record in order (parents first is the sender's job). */
-    fun push(records: List<SyncRecord>): List<PushResult> = records.map(::apply)
-
-    fun apply(record: SyncRecord): PushResult = stamper.exclusive {
-        val current = when (record) {
-            is HouseholdRecord -> q.householdStamp(record.id)
-            is MemberRecord -> q.memberStamp(record.id)
-            is DependentRecord -> q.householdDependentStamp(record.id)
-            is CategoryRecord -> q.categoryStamp(record.id)
-            is SubcategoryRecord -> q.subcategoryStamp(record.id)
-            is MonthlyBudgetRecord -> q.monthlyBudgetStamp(record.id)
-            is HouseholdExpenseRecord -> q.householdExpenseStamp(record.id)
-            is HouseholdSettlementRecord -> q.householdSettlementStamp(record.id)
-            is TripRecord -> q.tripStamp(record.id)
-            is ParticipantRecord -> q.tripParticipantStamp(record.id)
-            is TripExpenseRecord -> q.tripExpenseStamp(record.id)
-            is SettlementRecord -> q.settlementStamp(record.id)
-        }.executeAsOneOrNull()?.let(::decodeHlc)
-
-        if (!Lww.incomingWins(record.updatedAt, current)) {
-            return@exclusive PushResult(record.id, accepted = false, current = current ?: record.updatedAt)
+    /**
+     * Merges every record in [request] in order (parents first is the
+     * sender's job). Refuses the whole push, changing nothing, if the phone
+     * speaks an older protocol (S30) or its clock is too far ahead (S11).
+     */
+    fun push(request: PushRequest): PushResponse = stamper.exclusive {
+        if (request.protocolVersion < SyncProtocol.VERSION) {
+            throw SyncRefused(SyncError(SyncProtocol.ERROR_UPDATE_REQUIRED, UPDATE_MESSAGE))
         }
-        observe(record.updatedAt)
-        val stamp = record.updatedAt.encode()
-        val deleted = if (record.deleted) 1L else 0L
-        val seq = nextSeq()
-        db.transaction { write(record, stamp, deleted, seq) }
-        PushResult(record.id, accepted = true, current = record.updatedAt)
+        val now = nowMillis()
+        if (request.records.any { r -> RecordMerge.allStamps(r).values.any { SyncProtocol.isTooFarAhead(it, now) } }) {
+            throw SyncRefused(SyncError(SyncProtocol.ERROR_CLOCK_AHEAD, CLOCK_MESSAGE))
+        }
+        val results = request.records.map { incoming ->
+            RecordMerge.allStamps(incoming).values.forEach(::observe)
+            apply(incoming, request.base[incoming.id].orEmpty())
+        }
+        PushResponse(results, serverDeviceId, databaseId())
     }
 
-    private fun write(r: SyncRecord, stamp: String, deleted: Long, seq: Long) {
-        when (r) {
-            is HouseholdRecord -> q.upsertHousehold(
-                r.id, r.name, r.createdAt, r.defaultBudgetMinorUnits, r.currency,
-                r.settlementEnabled.long, stamp, deleted, seq,
-            )
-            is MemberRecord -> q.upsertMember(r.id, r.householdId, r.displayName, r.deviceId, r.email, r.phone, r.isArchived.long, stamp, deleted, seq)
-            is DependentRecord -> q.upsertHouseholdDependent(r.id, r.householdId, r.name, r.category, r.isArchived.long, stamp, deleted, seq)
-            is CategoryRecord -> q.upsertCategory(r.id, r.householdId, r.name, r.icon, r.isArchived.long, stamp, deleted, seq)
-            is SubcategoryRecord -> q.upsertSubcategory(r.id, r.categoryId, r.name, r.isArchived.long, stamp, deleted, seq)
-            is MonthlyBudgetRecord -> q.upsertMonthlyBudget(
-                r.id, r.householdId, r.year.toLong(), r.month.toLong(), r.totalMinorUnits, r.currency, "{}", stamp, deleted, seq,
-            )
-            is HouseholdExpenseRecord -> {
-                q.upsertHouseholdExpense(
-                    r.id, r.householdId, r.categoryId, r.subcategoryId, r.amountMinorUnits, r.currency, r.paidByMemberId,
-                    r.occurredAt, r.note, r.createdByDeviceId, r.createdAt, stamp, deleted, seq,
-                )
-                q.deleteHouseholdExpenseBeneficiariesForExpense(r.id)
-                q.deleteHouseholdExpenseContributionsForExpense(r.id)
-                if (!r.deleted) {
-                    r.beneficiaries.forEach { q.insertHouseholdExpenseBeneficiary(it.id, r.id, it.personId, it.dependentId, it.amountMinorUnits, r.currency) }
-                    r.contributions.forEach { q.insertHouseholdExpenseContribution(it.id, r.id, requireNotNull(it.personId), it.amountMinorUnits, r.currency) }
-                }
-            }
-            is HouseholdSettlementRecord -> q.upsertHouseholdSettlement(
-                r.id, r.householdId, r.fromMemberId, r.toMemberId, r.amountMinorUnits, r.currency, r.settledAt, r.note, stamp, deleted, seq,
-            )
-            is TripRecord -> q.upsertTrip(r.id, r.name, r.startDate, r.endDate, r.budgetMinorUnits, r.currency, r.createdBy, r.isClosed.long, stamp, deleted, seq)
-            is ParticipantRecord -> q.upsertTripParticipant(r.id, r.tripId, r.displayName, r.memberId, r.isArchived.long, r.deviceId, stamp, deleted, seq)
-            is TripExpenseRecord -> {
-                q.upsertTripExpense(
-                    r.id, r.tripId, r.categoryId, r.subcategoryId, r.amountMinorUnits, r.currency, r.paidByParticipantId,
-                    r.occurredAt, r.note, stamp, deleted, seq,
-                )
-                q.deleteExpenseSplitsForExpense(r.id)
-                q.deleteTripExpenseContributionsForExpense(r.id)
-                if (!r.deleted) {
-                    r.splits.forEach { q.insertExpenseSplit(it.id, r.id, requireNotNull(it.personId), it.amountMinorUnits, r.currency) }
-                    r.contributions.forEach { q.insertTripExpenseContribution(it.id, r.id, requireNotNull(it.personId), it.amountMinorUnits, r.currency) }
-                }
-            }
-            is SettlementRecord -> q.upsertSettlement(
-                r.id, r.tripId, r.fromParticipantId, r.toParticipantId, r.amountMinorUnits, r.currency, r.settledAt, r.note, stamp, deleted, seq,
-            )
+    private fun Stamper.Scope.apply(incoming: SyncRecord, base: Map<String, Hlc>): PushResult {
+        val current = tables.find(incoming::class, incoming.id)
+        val personOfDevice = { device: String -> personOf(incoming.scope, device) }
+        if (current == null && !Ownership.mayCreate(incoming, incoming.updatedAt.deviceId, serverDeviceId, personOfDevice)) {
+            return PushResult(incoming.id, accepted = false, current = incoming.updatedAt, rejected = NOT_OWNER)
         }
+        var refused = false
+        val merged = RecordMerge.merge(current, incoming, base, serverDeviceId) { field, author ->
+            Ownership.mayChange(current, incoming, field, author, serverDeviceId, personOfDevice).also { if (!it) refused = true }
+        }
+        if (merged != current) tables.write(merged, nextSeq())
+        val kept = RecordMerge.allStamps(incoming).all { (field, stamp) -> RecordMerge.stampOf(merged, field) == stamp }
+        return PushResult(incoming.id, accepted = kept, current = merged.updatedAt, record = merged, rejected = if (refused) NOT_OWNER else null)
+    }
+
+    /** The member/participant in [scope] whose phone is [deviceId]. */
+    private fun personOf(scope: SyncScope, deviceId: String): String? = when (scope.kind) {
+        ScopeKind.HOUSEHOLD -> q.selectMemberByDeviceId(scope.id, deviceId).executeAsOneOrNull()?.id
+        ScopeKind.TRIP -> q.selectTripParticipantByDeviceId(scope.id, deviceId).executeAsOneOrNull()?.id
     }
 
     /**
@@ -122,76 +93,53 @@ class SyncStore(private val db: WindowsDatabase, private val stamper: Stamper) {
      */
     fun pull(scope: SyncScope, since: Long): PullResponse = stamper.exclusive {
         var cursor = since
-        fun <T> track(rows: List<T>, seqOf: (T) -> Long): List<T> {
-            rows.forEach { cursor = maxOf(cursor, seqOf(it)) }
-            return rows
-        }
         val records = mutableListOf<SyncRecord>()
+        fun <T> add(rows: List<T>, seqOf: (T) -> Long, toRecord: (T) -> SyncRecord) {
+            rows.forEach {
+                cursor = maxOf(cursor, seqOf(it))
+                records += toRecord(it)
+            }
+        }
         val id = scope.id
         when (scope.kind) {
             ScopeKind.HOUSEHOLD -> {
-                track(q.householdChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += HouseholdRecord(
-                        it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.name, it.createdAt,
-                        it.defaultBudgetAmountMinorUnits, it.defaultBudgetCurrency ?: "INR", it.settlementEnabled.bool,
-                    )
-                }
-                track(q.membersChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += MemberRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.householdId, it.displayName, it.deviceId, it.email, it.phone, it.isArchived.bool)
-                }
-                track(q.householdDependentsChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += DependentRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.householdId, it.name, it.category, it.isArchived.bool)
-                }
-                track(q.categoriesChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += CategoryRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.householdId, it.name, it.icon, it.isArchived.bool)
-                }
-                track(q.subcategoriesChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += SubcategoryRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, id, it.categoryId, it.name, it.isArchived.bool)
-                }
-                track(q.monthlyBudgetsChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += MonthlyBudgetRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.householdId, it.year.toInt(), it.month.toInt(), it.totalAmountMinorUnits, it.currency)
-                }
-                track(q.householdExpensesChanged(id, since).executeAsList()) { it.serverSeq }.forEach { e ->
-                    records += HouseholdExpenseRecord(
-                        e.id, decodeHlc(e.updatedAt), e.isDeleted.bool, e.householdId, e.categoryId, e.subcategoryId, e.amountMinorUnits, e.currency,
-                        e.paidByMemberId, e.occurredAt, e.note, e.createdByDeviceId, e.createdAt,
-                        beneficiaries = q.selectHouseholdExpenseBeneficiaries(e.id).executeAsList().map { ShareLine(it.id, it.memberId, it.dependentId, it.amountMinorUnits) },
-                        contributions = q.selectHouseholdExpenseContributions(e.id).executeAsList().map { ShareLine(it.id, it.memberId, null, it.amountMinorUnits) },
-                    )
-                }
-                track(q.householdSettlementsChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += HouseholdSettlementRecord(
-                        it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.householdId, it.fromMemberId, it.toMemberId,
-                        it.amountMinorUnits, it.currency, it.settledAt, it.note,
-                    )
-                }
+                add(q.householdChanged(id, since).executeAsList(), { it.serverSeq }, tables::household)
+                add(q.membersChanged(id, since).executeAsList(), { it.serverSeq }, tables::member)
+                add(q.householdDependentsChanged(id, since).executeAsList(), { it.serverSeq }, tables::dependent)
+                add(q.categoriesChanged(id, since).executeAsList(), { it.serverSeq }, tables::category)
+                add(q.subcategoriesChanged(id, since).executeAsList(), { it.serverSeq }, tables::subcategory)
+                add(q.monthlyBudgetsChanged(id, since).executeAsList(), { it.serverSeq }, tables::monthlyBudget)
+                add(q.householdExpensesChanged(id, since).executeAsList(), { it.serverSeq }, tables::householdExpense)
+                add(q.householdSettlementsChanged(id, since).executeAsList(), { it.serverSeq }, tables::householdSettlement)
             }
             ScopeKind.TRIP -> {
-                track(q.tripChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += TripRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.name, it.startDate, it.endDate, it.budgetAmountMinorUnits, it.currency, it.createdBy, it.isClosed.bool)
-                }
-                track(q.tripParticipantsChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += ParticipantRecord(it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.tripId, it.displayName, it.memberId, it.deviceId, it.isArchived.bool)
-                }
-                track(q.tripExpensesChanged(id, since).executeAsList()) { it.serverSeq }.forEach { e ->
-                    records += TripExpenseRecord(
-                        e.id, decodeHlc(e.updatedAt), e.isDeleted.bool, e.tripId, e.categoryId, e.subcategoryId, e.amountMinorUnits, e.currency,
-                        e.paidByParticipantId, e.occurredAt, e.note,
-                        splits = q.selectExpenseSplits(e.id).executeAsList().map { ShareLine(it.id, it.participantId, null, it.shareAmountMinorUnits) },
-                        contributions = q.selectTripExpenseContributions(e.id).executeAsList().map { ShareLine(it.id, it.participantId, null, it.amountMinorUnits) },
-                    )
-                }
-                track(q.settlementsChanged(id, since).executeAsList()) { it.serverSeq }.forEach {
-                    records += SettlementRecord(
-                        it.id, decodeHlc(it.updatedAt), it.isDeleted.bool, it.tripId, it.fromParticipantId, it.toParticipantId,
-                        it.amountMinorUnits, it.currency, it.settledAt, it.note,
-                    )
-                }
+                add(q.tripChanged(id, since).executeAsList(), { it.serverSeq }, tables::trip)
+                add(q.tripParticipantsChanged(id, since).executeAsList(), { it.serverSeq }, tables::participant)
+                add(q.tripExpensesChanged(id, since).executeAsList(), { it.serverSeq }, tables::tripExpense)
+                add(q.settlementsChanged(id, since).executeAsList(), { it.serverSeq }, tables::settlement)
             }
         }
-        PullResponse(records, cursor)
+        PullResponse(records, cursor, serverDeviceId, databaseId())
+    }
+
+    /**
+     * S24: was expense [id] ([type]: household or activity expense) changed
+     * after one of the payments recorded at [settledAts]? Read from its
+     * field stamps ([ExpenseStamps]).
+     */
+    fun changedAfterSettling(type: KClass<out SyncRecord>, id: String, settledAts: List<Long>): Boolean {
+        if (settledAts.isEmpty()) return false
+        val expense = stamper.exclusive { tables.find(type, id) } ?: return false
+        return SettlementChecks.changedAfterSettling(ExpenseStamps.addedAt(expense), ExpenseStamps.moneyChangedAt(expense), settledAts)
+    }
+
+    companion object {
+        /** [PushResult.rejected]: the change came from a phone that doesn't own the expense/settlement. */
+        const val NOT_OWNER = "not_owner"
+        const val UPDATE_MESSAGE = "Update Kharcha on this phone to keep syncing."
+        const val CLOCK_MESSAGE = "This phone's clock is ahead of the computer's. Set the date and time automatically, then sync again."
     }
 }
 
-private val Boolean.long get() = if (this) 1L else 0L
-private val Long.bool get() = this != 0L
+/** A push turned down as a whole; nothing was changed. */
+class SyncRefused(val error: SyncError) : Exception(error.message)
