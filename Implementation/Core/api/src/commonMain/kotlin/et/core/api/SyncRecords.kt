@@ -43,6 +43,7 @@ sealed class SyncRecord {
     abstract val updatedAt: Hlc
     abstract val deleted: Boolean
     abstract val scope: SyncScope
+    abstract val fieldStamps: Map<String, Hlc>
 }
 
 @Serializable
@@ -56,6 +57,8 @@ data class HouseholdRecord(
     val defaultBudgetMinorUnits: Long? = null,
     val currency: String,
     val settlementEnabled: Boolean = false,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, id)
 }
@@ -72,6 +75,9 @@ data class MemberRecord(
     val email: String? = null,
     val phone: String? = null,
     val isArchived: Boolean = false,
+    val age: Int? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -87,6 +93,8 @@ data class DependentRecord(
     /** PET, KID or PARENT. */
     val category: String,
     val isArchived: Boolean = false,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -101,6 +109,8 @@ data class CategoryRecord(
     val name: String,
     val icon: String = "",
     val isArchived: Boolean = false,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -115,6 +125,8 @@ data class SubcategoryRecord(
     val categoryId: String,
     val name: String,
     val isArchived: Boolean = false,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -131,6 +143,8 @@ data class MonthlyBudgetRecord(
     val month: Int,
     val totalMinorUnits: Long,
     val currency: String,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -155,6 +169,10 @@ data class HouseholdExpenseRecord(
     val beneficiaries: List<ShareLine> = emptyList(),
     /** Who chipped in: [ShareLine.personId] = member. */
     val contributions: List<ShareLine> = emptyList(),
+    /** The member who added it — the only person (besides the Windows app) who may change or delete it. Null = added on the Windows app. */
+    val ownerId: String? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -172,6 +190,10 @@ data class HouseholdSettlementRecord(
     val currency: String,
     val settledAt: Long,
     val note: String = "",
+    /** The member who recorded it — only they (or the Windows app) may undo it. Null = recorded on the Windows app. */
+    val ownerId: String? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.HOUSEHOLD, householdId)
 }
@@ -189,6 +211,8 @@ data class TripRecord(
     val currency: String,
     val createdBy: String = "",
     val isClosed: Boolean = false,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.TRIP, id)
 }
@@ -204,6 +228,11 @@ data class ParticipantRecord(
     val memberId: String? = null,
     val deviceId: String? = null,
     val isArchived: Boolean = false,
+    val age: Int? = null,
+    val email: String? = null,
+    val phone: String? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.TRIP, tripId)
 }
@@ -226,6 +255,10 @@ data class TripExpenseRecord(
     val splits: List<ShareLine> = emptyList(),
     /** Who chipped in: [ShareLine.personId] = participant. */
     val contributions: List<ShareLine> = emptyList(),
+    /** The participant who added it — the only person (besides the Windows app) who may change or delete it. Null = added on the Windows app. */
+    val ownerId: String? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.TRIP, tripId)
 }
@@ -243,33 +276,84 @@ data class SettlementRecord(
     val currency: String,
     val settledAt: Long,
     val note: String = "",
+    /** The participant who recorded it — only they (or the Windows app) may undo it. Null = recorded on the Windows app. */
+    val ownerId: String? = null,
+    /** Stamp of each field's last change (field name → stamp); a missing field counts as [updatedAt]. See [RecordMerge]. */
+    override val fieldStamps: Map<String, Hlc> = emptyMap(),
 ) : SyncRecord() {
     override val scope get() = SyncScope(ScopeKind.TRIP, tripId)
 }
 
-/** A device sends the records it has changed and not yet synced. */
+/** Protocol constants shared by every side. */
+object SyncProtocol {
+    /** 2 = field-level merge with bases and ownership. Phones older than this can't sync (S30). */
+    const val VERSION = 2
+
+    /** A stamp more than this far ahead of the server's clock means the phone's clock is wrong (S11). */
+    const val MAX_FUTURE_SKEW_MS = 5 * 60 * 1000L
+
+    /** [SyncError.code] values. */
+    const val ERROR_UPDATE_REQUIRED = "update_required"
+    const val ERROR_CLOCK_AHEAD = "clock_ahead"
+
+    /** S11: a stamp from more than [MAX_FUTURE_SKEW_MS] in the server's future means the sending device's clock is wrong. */
+    fun isTooFarAhead(stamp: Hlc, serverNowMillis: Long): Boolean = stamp.physical > serverNowMillis + MAX_FUTURE_SKEW_MS
+}
+
+/** Body of a rejected push/pull — [code] is one of the SyncProtocol.ERROR_* values. */
 @Serializable
-data class PushRequest(val records: List<SyncRecord>)
+data class SyncError(val code: String, val message: String)
 
 /**
- * Per record: whether the server took this version ([accepted]) and the
- * stamp it now holds ([current]). A rejected record lost to a newer
- * version; the sender marks it synced anyway and picks up the winner on
- * its next pull.
+ * A device sends the records it has changed and the server hasn't
+ * confirmed. [base] has, per record id, the field stamps the sender last
+ * had confirmed by the server — what lets the server tell a field only the
+ * sender changed from a field both changed ([RecordMerge.theirsWins]).
  */
 @Serializable
-data class PushResult(val id: String, val accepted: Boolean, val current: Hlc)
+data class PushRequest(
+    val records: List<SyncRecord>,
+    val base: Map<String, Map<String, Hlc>> = emptyMap(),
+    val protocolVersion: Int = SyncProtocol.VERSION,
+)
 
+/**
+ * Per record: [record] is the server's version after merging the push —
+ * what the sender should now treat as confirmed. [rejected] says why a
+ * record wasn't accepted at all (e.g. a change to someone else's expense);
+ * [accepted] is true when at least one of the sender's changes was kept.
+ */
 @Serializable
-data class PushResponse(val results: List<PushResult>)
+data class PushResult(
+    val id: String,
+    val accepted: Boolean,
+    val current: Hlc,
+    val record: SyncRecord? = null,
+    val rejected: String? = null,
+)
+
+/**
+ * [serverDeviceId] is the Windows app's own device id — its changes win
+ * clashes. [serverDbId] changes whenever the server's database is replaced
+ * or restored from a backup; a phone that sees a new one re-sends
+ * everything (S20).
+ */
+@Serializable
+data class PushResponse(val results: List<PushResult>, val serverDeviceId: String = "", val serverDbId: String = "")
 
 /**
  * Everything in one household/activity that changed after [since]
  * (a server sequence number — not a stamp, so a late push of an old edit
  * is still picked up). Start from [PullResponse.START]; keep [cursor].
+ * See [PushResponse] for [serverDeviceId] and [serverDbId].
  */
 @Serializable
-data class PullResponse(val records: List<SyncRecord>, val cursor: Long) {
+data class PullResponse(
+    val records: List<SyncRecord>,
+    val cursor: Long,
+    val serverDeviceId: String = "",
+    val serverDbId: String = "",
+) {
     companion object {
         const val START: Long = -1
     }
