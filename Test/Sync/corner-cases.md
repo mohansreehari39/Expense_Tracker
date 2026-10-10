@@ -40,11 +40,11 @@ and rules as phone-to-server sync, which is the plan.
 | S1 | Same record reaches the server by two routes | Handled (with S14 fixed) |
 | S2 | A phone retries a push after a timeout | Handled |
 | S3 | Same category / subcategory / dependent created on two phones | Gap |
-| S4 | Same person added twice by name | Decision |
+| S4 | Same person added twice by name | Decided — match on name + age + email + mobile |
 | S5 | Two budget overrides for the same month | Gap |
 | S6 | Rejoining after a reinstall | Handled |
-| S7 | Two people edit the same expense offline | Decision |
-| S8 | Delete, then someone else edits later | Decision |
+| S7 | Two people edit the same expense offline | Decided — field-by-field merge |
+| S8 | Delete, then someone else edits later | Decided — only the owner (or Windows) edits/deletes |
 | S9 | Edit, then someone else deletes later | Handled |
 | S10 | An old edit arrives late from an offline phone | Handled |
 | S11 | A phone's clock is wrong | Gap (partly handled) |
@@ -60,7 +60,7 @@ and rules as phone-to-server sync, which is the plan.
 | S21 | Phone removed from the server and paired again | Handled |
 | S22 | One phone paired to two Windows servers | Gap (out of scope for now) |
 | S23 | The same debt settled twice on two phones | Gap |
-| S24 | An expense edited after it was settled | Decision |
+| S24 | An expense edited after it was settled | Decided — label "changed after settling" |
 | S25 | Member removed while another phone adds expenses for them | Handled |
 | S26 | Household currency changed after expenses exist | Gap (low priority) |
 | S27 | Renamed on the phone and on Windows at the same time | Handled |
@@ -130,9 +130,13 @@ Two phones both add "Ravi" as an activity participant (participants can be
 typed in when creating an activity). With random ids that's two Ravis.
 Unlike categories, two different people can genuinely share a name, so
 merging by name could be wrong.
-**Status:** Decision — merge same-named people automatically (same rule as
-S3), or keep both and let the user merge them? Joining by QR is not
-affected: it matches by device id first.
+**Decided:** a person is identified by **name + age + email + mobile**, not
+by name alone. Two records whose four fields all match are the same person
+and merge automatically. Typed-in guests (only a name, no app) are never
+merged automatically; a user can merge them by hand in the activity's
+settings. Joining by QR still matches by device id first; the server's
+name-only fallback in `AddMember` is removed. Members and participants need
+to carry age, email and mobile for this.
 
 ### S5 — Two budget overrides for the same month
 The server allows one override per household per month. A second override
@@ -157,14 +161,26 @@ participants matched by device id after a rename.
 Phone A changes the amount, phone B changes the note, both offline. The
 later edit replaces the whole expense, so the other change is lost without
 anyone being told. This is the "last update wins" rule as agreed.
-**Status:** Decision — keep silent last-update-wins, show a notice ("Ravi's
-edit replaced yours"), or merge field by field (amount from A, note from B)?
+**Decided:** merge **field by field**, for every shared record (household
+and activity settings, categories, subcategories, members, dependents,
+budgets, expenses). Each field carries its own stamp; two changes to
+different fields both survive, and only a field changed on both sides uses
+the later change. With the S8 ownership rule, two people can no longer edit
+the same expense, so for expenses this mostly applies to the owner vs the
+Windows app.
 
 ### S8 — Delete, then someone else edits later
 Phone A deletes an expense at 10:00; phone B, offline, edits it at 10:05.
 Under strict "later wins", the edit brings the expense back. The original
 design doc said a delete always wins.
-**Status:** Decision — which should win?
+**Decided:** avoided at the source by **ownership**. Only the person who
+added an expense can edit or delete it — the person (member/participant),
+not the phone, so it survives a reinstall or a new phone. The Windows app
+can edit or delete any expense. If Windows and the owner change the same
+expense before either has synced, **Windows' version wins**; an edit the
+owner makes after receiving Windows' change applies normally. Phones hide
+Edit/Delete on other people's expenses, and the server rejects a push that
+changes an expense the pushing person doesn't own.
 
 ### S9 — Edit, then someone else deletes later
 The delete is later, so it wins and the expense stays deleted.
@@ -188,7 +204,7 @@ a phone set two days fast wins every concurrent edit for two days. (This
 corrects an earlier claim that a wrong clock can't win conflicts it
 shouldn't — it can, for concurrent edits.)
 **Status:** Gap, partly handled.
-**Proposed fix:** the server rejects stamps more than a few minutes ahead
+**Proposed fix:** the server rejects stamps more than **5 minutes** ahead
 of its own clock and tells the phone its clock is wrong; the phone shows a
 warning and restamps. Phones' clocks are normally network-synced, so this
 should be rare.
@@ -288,7 +304,9 @@ recorded (different ids, so "later wins" doesn't apply) and the balance
 flips: the creditor now owes ₹500.
 **Status:** Gap.
 **Proposed fix:** (1) list recorded settlements on the household/activity
-screen with Undo, which deletes the settlement like any record; (2) after a
+screen with Undo, which deletes the settlement like any record — **only the
+person who recorded it, or the Windows app, can undo it** (same ownership
+rule as expenses); (2) after a
 pull, if a settlement from another device covers the same pair of people
 within a day of one made here, show "This payment may have been recorded
 twice — undo one?".
@@ -299,8 +317,9 @@ detected; undo one → balances back to zero.
 A ₹1,000 dinner is settled, then someone corrects it to ₹800. The
 settlement now overpays and the suggestion reverses. The arithmetic is
 correct, but users may be confused.
-**Status:** Decision — accept as is, or show "Changed after settling" on
-that expense?
+**Decided:** keep the correct arithmetic, and label the edited expense and
+the reversed suggestion "changed after settling" so people can see why the
+balance moved.
 
 ### S25 — Member removed while another phone adds expenses for them
 Removing a member archives them (keeps the id), so expenses added for them
@@ -354,14 +373,19 @@ keep syncing", which the old app already shows as a sync error.
 
 ---
 
-## Open decisions
+## Decisions (2026-10-10)
 
-| # | Question | Options |
+| # | Question | Decision |
 |---|---|---|
-| S4 | Two people added with the same name | Merge automatically · keep both, let the user merge |
-| S7 | Two people edit the same expense offline | Silent last-update-wins · show a notice · merge field by field |
-| S8 | Delete vs a later edit | Later edit wins (strict rule) · delete always wins |
-| S24 | Expense changed after settling | Accept as is · mark it "changed after settling" |
+| S4 | Same person added twice | Same person only if name + age + email + mobile all match → merge automatically. Guests never auto-merge; merge by hand. |
+| S7 | Two edits to the same record | Field-by-field merge, for every shared record type. |
+| S8 | Delete vs a later edit | Only the expense's owner (the person) or the Windows app can edit/delete it. Windows wins a clash; later edits by the owner apply normally. |
+| S24 | Expense changed after settling | Label it "changed after settling". |
+| S23 | Who can undo a settlement | The person who recorded it, or the Windows app. |
+| S11 | Clock limit | Reject stamps more than 5 minutes ahead of the server. |
+
+Fixes approved for the next sync PR: sync safety (S14, S20, S29, S30),
+duplicates (S3, S5), money (S23, S24) and the clock check (S11).
 
 ## How these get tested
 
